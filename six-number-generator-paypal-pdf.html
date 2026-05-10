@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Six Number Date Generator</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f5f7fb;color:#0f172a;min-height:100vh;padding:24px}
+    .app{max-width:1050px;margin:0 auto}
+    .hero{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border-radius:24px;padding:28px;box-shadow:0 18px 45px rgba(15,23,42,.18);margin-bottom:20px}
+    .hero h1{margin:0 0 8px;font-size:34px}
+    .hero p{margin:0;color:#dbeafe;line-height:1.5}
+    .panel{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:22px;box-shadow:0 12px 30px rgba(15,23,42,.07);margin-bottom:18px}
+    .controls{display:grid;grid-template-columns:1fr 1fr auto;gap:14px;align-items:end}
+    label{display:grid;gap:7px;font-weight:700;color:#334155}
+    input{border:1px solid #d1d5db;border-radius:14px;padding:13px;font-size:15px}
+    button{border:0;border-radius:14px;padding:14px 18px;background:#2563eb;color:#fff;font-weight:800;cursor:pointer;font-size:15px}
+    button:hover{background:#1d4ed8}
+    .secondary{background:#0f172a}
+    .meta{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:12px;margin-top:16px}
+    .meta-card{background:#f8fafc;border:1px solid #eef2f7;border-radius:16px;padding:14px}
+    .meta-card span{display:block;color:#64748b;font-size:12px;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em}
+    .meta-card strong{font-size:18px}
+    .results{display:grid;gap:14px}
+    .set-card{border:1px solid #e5e7eb;border-radius:18px;padding:16px;background:#fff;display:grid;gap:12px}
+    .set-title{display:flex;justify-content:space-between;gap:12px;color:#475569;font-weight:800}
+    .balls{display:flex;flex-wrap:wrap;gap:10px}
+    .ball{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-weight:900;font-size:17px}
+    .bonus-title{color:#991b1b;font-weight:900;margin-top:2px}
+    .bonus{background:#fee2e2;color:#b91c1c;border-color:#fecaca}
+    .note{color:#64748b;font-size:13px;line-height:1.5;margin-top:10px}
+    .payment-box{display:grid;gap:12px}
+    .payment-status{padding:12px 14px;border-radius:14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-weight:700}
+    .payment-status.paid{background:#f0fdf4;border-color:#bbf7d0;color:#166534}
+    .download-btn{background:#16a34a;display:none}
+    .download-btn.show{display:inline-block}
+    button:disabled{background:#94a3b8;cursor:not-allowed}
+    @media(max-width:760px){body{padding:14px}.controls,.meta{grid-template-columns:1fr}.hero h1{font-size:26px}.ball{width:42px;height:42px}}
+  </style>
+
+  <script src="https://www.paypal.com/sdk/js?client-id=BAA5MxnqzqlEUGwpctwOoOCbP5fCs7_qiRfkcT64R25YhSyEByjyC2qv9W9-z-d1VYWSHSoA3PD6KuflUc&components=hosted-buttons&disable-funding=venmo&currency=USD"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <section class="hero">
+      <h1>Six Number Date Generator</h1>
+      <p>Generates 5 possible sets of six numbers between 1 and 49, using the selected date, day, month, and year as part of the seed. Bonus numbers appear in red.</p>
+    </section>
+
+    <section class="panel payment-box">
+      <h2 style="margin:0">Payment Required</h2>
+      <p class="note" style="margin:0">Pay first to unlock the number generator. After successful payment, the numbers will generate and you can download them as a PDF.</p>
+      <div id="paypal-container"></div>
+      <div id="paymentStatus" class="payment-status">Waiting for payment before generating numbers.</div>
+    </section>
+
+    <section class="panel">
+      <div class="controls">
+        <label>
+          Select date
+          <input type="date" id="dateInput" />
+        </label>
+        <label>
+          Extra seed word or note, optional
+          <input type="text" id="seedInput" placeholder="Example: lucky, work, family" />
+        </label>
+        <button id="generateBtn" disabled>Generate Numbers</button>
+        <button id="downloadPdfBtn" class="download-btn" type="button">Download PDF</button>
+      </div>
+
+      <div class="meta" id="metaBox"></div>
+      <p class="note">This is a random/date-seeded number generator for entertainment. It cannot guarantee or truly predict winning numbers.</p>
+    </section>
+
+    <section class="panel">
+      <div class="results" id="resultsBox"></div>
+    </section>
+  </div>
+
+  <script>
+    const dateInput = document.getElementById("dateInput");
+    const seedInput = document.getElementById("seedInput");
+    const generateBtn = document.getElementById("generateBtn");
+    const resultsBox = document.getElementById("resultsBox");
+    const metaBox = document.getElementById("metaBox");
+    const paymentStatus = document.getElementById("paymentStatus");
+    const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+
+    let paymentApproved = false;
+    let latestSets = [];
+    let latestMeta = {};
+
+    const today = new Date();
+    dateInput.value = today.toISOString().slice(0, 10);
+
+    generateBtn.addEventListener("click", generateAll);
+    downloadPdfBtn.addEventListener("click", downloadNumbersPdf);
+    window.addEventListener("load", initializePayment);
+
+    function generateAll() {
+      if (!paymentApproved) {
+        resultsBox.innerHTML = `<p class="note">Please complete payment first. Numbers will only generate after payment is approved.</p>`;
+        return;
+      }
+
+      const dateValue = dateInput.value || new Date().toISOString().slice(0, 10);
+      const selectedDate = new Date(dateValue + "T12:00:00");
+      const dayName = selectedDate.toLocaleDateString("en-ZA", { weekday: "long" });
+      const monthName = selectedDate.toLocaleDateString("en-ZA", { month: "long" });
+      const year = selectedDate.getFullYear();
+      const month = selectedDate.getMonth() + 1;
+      const day = selectedDate.getDate();
+      const weekday = selectedDate.getDay() || 7;
+      const extraSeed = seedInput.value.trim();
+
+      metaBox.innerHTML = `
+        <div class="meta-card"><span>Date</span><strong>${dateValue}</strong></div>
+        <div class="meta-card"><span>Day</span><strong>${dayName}</strong></div>
+        <div class="meta-card"><span>Month</span><strong>${monthName}</strong></div>
+        <div class="meta-card"><span>Year</span><strong>${year}</strong></div>
+      `;
+
+      latestMeta = { dateValue, dayName, monthName, year, extraSeed };
+
+      const baseSeed = `${dateValue}|${dayName}|${monthName}|${year}|${month}|${day}|${weekday}|${extraSeed}`;
+      const sets = [];
+
+      for (let i = 1; i <= 5; i++) {
+        const rng = mulberry32(hashSeed(`${baseSeed}|main-set-${i}`));
+        const numbers = pickUniqueNumbers(rng, 6, 1, 49);
+        const bonusRng = mulberry32(hashSeed(`${baseSeed}|bonus-set-${i}`));
+        const bonuses = pickUniqueNumbers(bonusRng, 5, 1, 49, numbers);
+        sets.push({ numbers, bonuses });
+      }
+
+      latestSets = sets;
+      renderSets(sets);
+      downloadPdfBtn.classList.add("show");
+    }
+
+    function renderSets(sets) {
+      resultsBox.innerHTML = sets.map((set, index) => `
+        <div class="set-card">
+          <div class="set-title"><span>Possible Combination ${index + 1}</span><span>6 main numbers</span></div>
+          <div class="balls">
+            ${set.numbers.map(num => `<div class="ball">${num}</div>`).join("")}
+          </div>
+          <div class="bonus-title">5 Possible Bonus Numbers</div>
+          <div class="balls">
+            ${set.bonuses.map(num => `<div class="ball bonus">${num}</div>`).join("")}
+          </div>
+        </div>
+      `).join("");
+    }
+
+
+    function initializePayment() {
+      resultsBox.innerHTML = `<p class="note">Complete payment above to unlock number generation.</p>`;
+
+      if (!window.paypal || !paypal.HostedButtons) {
+        paymentStatus.textContent = "PayPal could not load. Check your internet connection or PayPal client ID.";
+        return;
+      }
+
+      paypal.HostedButtons({
+        // Replace this with your real PayPal Hosted Button ID if PayPal requires it.
+        // The SDK script is already added exactly as provided.
+        hostedButtonId: "YOUR_HOSTED_BUTTON_ID",
+        onApprove: function(data, actions) {
+          unlockGenerator();
+        },
+        onError: function(err) {
+          console.error(err);
+          paymentStatus.textContent = "Payment could not be completed. Please try again.";
+        }
+      }).render("#paypal-container").catch(function(error) {
+        console.error(error);
+        paymentStatus.textContent = "PayPal button needs a valid Hosted Button ID before live payments can work.";
+      });
+    }
+
+    function unlockGenerator() {
+      paymentApproved = true;
+      paymentStatus.textContent = "Payment approved. Numbers generated below.";
+      paymentStatus.classList.add("paid");
+      generateBtn.disabled = false;
+      generateAll();
+    }
+
+    function downloadNumbersPdf() {
+      if (!paymentApproved || !latestSets.length) return;
+
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      let y = 18;
+
+      doc.setFontSize(18);
+      doc.text("Six Number Date Generator", 14, y);
+      y += 10;
+
+      doc.setFontSize(11);
+      doc.text(`Date: ${latestMeta.dateValue || "-"}`, 14, y); y += 7;
+      doc.text(`Day: ${latestMeta.dayName || "-"}`, 14, y); y += 7;
+      doc.text(`Month: ${latestMeta.monthName || "-"}`, 14, y); y += 7;
+      doc.text(`Year: ${latestMeta.year || "-"}`, 14, y); y += 10;
+
+      latestSets.forEach((set, index) => {
+        if (y > 260) { doc.addPage(); y = 18; }
+
+        doc.setFontSize(13);
+        doc.text(`Possible Combination ${index + 1}`, 14, y);
+        y += 8;
+
+        doc.setFontSize(12);
+        doc.text(`Main Numbers: ${set.numbers.join(", ")}`, 18, y);
+        y += 7;
+
+        doc.setTextColor(185, 28, 28);
+        doc.text(`Bonus Numbers: ${set.bonuses.join(", ")}`, 18, y);
+        doc.setTextColor(15, 23, 42);
+        y += 12;
+      });
+
+      doc.setFontSize(9);
+      doc.text("For entertainment only. This generator cannot guarantee or predict winning numbers.", 14, 286);
+      doc.save(`six-number-generator-${latestMeta.dateValue || "numbers"}.pdf`);
+    }
+
+    function pickUniqueNumbers(rng, count, min, max, exclude = []) {
+      const excluded = new Set(exclude);
+      const picked = new Set();
+
+      while (picked.size < count) {
+        const value = Math.floor(rng() * (max - min + 1)) + min;
+        if (!excluded.has(value)) picked.add(value);
+      }
+
+      return Array.from(picked).sort((a, b) => a - b);
+    }
+
+    function hashSeed(text) {
+      let hash = 2166136261;
+      for (let i = 0; i < text.length; i++) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return hash >>> 0;
+    }
+
+    function mulberry32(seed) {
+      return function() {
+        let t = seed += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
+    }
+  </script>
+</body>
+</html>
