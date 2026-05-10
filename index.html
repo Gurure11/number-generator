@@ -31,12 +31,15 @@
     .bonus{background:#fee2e2;color:#b91c1c;border-color:#fecaca}
     .note{color:#64748b;font-size:13px;line-height:1.5;margin-top:10px}
     .payment-box{display:grid;gap:12px}
+    .customer-form{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .customer-warning{display:none;padding:12px 14px;border-radius:14px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-weight:700}
+    .customer-warning.show{display:block}
     .payment-status{padding:12px 14px;border-radius:14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-weight:700}
     .payment-status.paid{background:#f0fdf4;border-color:#bbf7d0;color:#166534}
-    .download-btn{background:#16a34a;display:none}
+    .download-btn{background:#16a34a;display:none;text-decoration:none;color:#fff;border-radius:14px;padding:14px 18px;font-weight:800;text-align:center}
     .download-btn.show{display:inline-block}
     button:disabled{background:#94a3b8;cursor:not-allowed}
-    @media(max-width:760px){body{padding:14px}.controls,.meta{grid-template-columns:1fr}.hero h1{font-size:26px}.ball{width:42px;height:42px}}
+    @media(max-width:760px){body{padding:14px}.controls,.meta,.customer-form{grid-template-columns:1fr}.hero h1{font-size:26px}.ball{width:42px;height:42px}}
   </style>
 
   <script src="https://www.paypal.com/sdk/js?client-id=BAA5MxnqzqlEUGwpctwOoOCbP5fCs7_qiRfkcT64R25YhSyEByjyC2qv9W9-z-d1VYWSHSoA3PD6KuflUc&components=hosted-buttons&disable-funding=venmo&currency=USD"></script>
@@ -51,8 +54,19 @@
 
     <section class="panel payment-box">
       <h2 style="margin:0">Payment Required</h2>
-      <p class="note" style="margin:0">Pay first to unlock the number generator. After successful payment, the numbers will generate and you can download them as a PDF.</p>
-      <div id="paypal-container"></div>
+      <p class="note" style="margin:0">Enter your name and cell number, then pay to unlock the number generator. After successful payment, the numbers will show on screen and a PDF download link will appear.</p>
+      <div class="customer-form">
+        <label>
+          Your name
+          <input type="text" id="customerName" placeholder="Enter your name" required />
+        </label>
+        <label>
+          Cell number
+          <input type="tel" id="customerCell" placeholder="Enter your cell number" required />
+        </label>
+      </div>
+      <div id="customerWarning" class="customer-warning">Please enter your name and cell number before paying.</div>
+      <div id="paypal-container-M8XXRNXD88L7U"></div>
       <div id="paymentStatus" class="payment-status">Waiting for payment before generating numbers.</div>
     </section>
 
@@ -67,7 +81,7 @@
           <input type="text" id="seedInput" placeholder="Example: lucky, work, family" />
         </label>
         <button id="generateBtn" disabled>Generate Numbers</button>
-        <button id="downloadPdfBtn" class="download-btn" type="button">Download PDF</button>
+        <a id="downloadPdfLink" class="download-btn" href="#" download="six-number-generator.pdf">Download PDF</a>
       </div>
 
       <div class="meta" id="metaBox"></div>
@@ -86,7 +100,10 @@
     const resultsBox = document.getElementById("resultsBox");
     const metaBox = document.getElementById("metaBox");
     const paymentStatus = document.getElementById("paymentStatus");
-    const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+    const downloadPdfLink = document.getElementById("downloadPdfLink");
+    const customerName = document.getElementById("customerName");
+    const customerCell = document.getElementById("customerCell");
+    const customerWarning = document.getElementById("customerWarning");
 
     let paymentApproved = false;
     let latestSets = [];
@@ -96,7 +113,9 @@
     dateInput.value = today.toISOString().slice(0, 10);
 
     generateBtn.addEventListener("click", generateAll);
-    downloadPdfBtn.addEventListener("click", downloadNumbersPdf);
+    downloadPdfLink.addEventListener("click", function(event) {
+      if (!paymentApproved || !latestSets.length) event.preventDefault();
+    });
     window.addEventListener("load", initializePayment);
 
     function generateAll() {
@@ -137,7 +156,8 @@
 
       latestSets = sets;
       renderSets(sets);
-      downloadPdfBtn.classList.add("show");
+      preparePdfDownload();
+      downloadPdfLink.classList.add("show");
     }
 
     function renderSets(sets) {
@@ -165,32 +185,63 @@
       }
 
       paypal.HostedButtons({
-        // Replace this with your real PayPal Hosted Button ID if PayPal requires it.
-        // The SDK script is already added exactly as provided.
-        hostedButtonId: "YOUR_HOSTED_BUTTON_ID",
+        hostedButtonId: "M8XXRNXD88L7U",
+        onClick: function() {
+          return validateCustomerDetails();
+        },
         onApprove: function(data, actions) {
+          if (!validateCustomerDetails()) return;
           unlockGenerator();
         },
         onError: function(err) {
           console.error(err);
           paymentStatus.textContent = "Payment could not be completed. Please try again.";
         }
-      }).render("#paypal-container").catch(function(error) {
+      }).render("#paypal-container-M8XXRNXD88L7U").catch(function(error) {
         console.error(error);
-        paymentStatus.textContent = "PayPal button needs a valid Hosted Button ID before live payments can work.";
+        paymentStatus.textContent = "PayPal button could not load. Please check the PayPal hosted button setup.";
       });
+    }
+
+    function validateCustomerDetails() {
+      const name = customerName.value.trim();
+      const cell = customerCell.value.trim();
+
+      if (!name || !cell) {
+        customerWarning.classList.add("show");
+        paymentStatus.textContent = "Please enter your name and cell number before paying.";
+        return false;
+      }
+
+      customerWarning.classList.remove("show");
+      return true;
     }
 
     function unlockGenerator() {
       paymentApproved = true;
-      paymentStatus.textContent = "Payment approved. Numbers generated below.";
+      paymentStatus.textContent = "Payment approved. Numbers generated below. Your PDF download link is now available.";
       paymentStatus.classList.add("paid");
       generateBtn.disabled = false;
       generateAll();
     }
 
-    function downloadNumbersPdf() {
-      if (!paymentApproved || !latestSets.length) return;
+    function preparePdfDownload() {
+      const blob = createNumbersPdfBlob();
+      if (!blob) return;
+
+      if (downloadPdfLink.dataset.url) {
+        URL.revokeObjectURL(downloadPdfLink.dataset.url);
+      }
+
+      const url = URL.createObjectURL(blob);
+      downloadPdfLink.href = url;
+      downloadPdfLink.dataset.url = url;
+      downloadPdfLink.download = `six-number-generator-${latestMeta.dateValue || "numbers"}.pdf`;
+      downloadPdfLink.textContent = "Download Your PDF";
+    }
+
+    function createNumbersPdfBlob() {
+      if (!paymentApproved || !latestSets.length) return null;
 
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF();
@@ -201,6 +252,8 @@
       y += 10;
 
       doc.setFontSize(11);
+      doc.text(`Name: ${customerName.value.trim() || "-"}`, 14, y); y += 7;
+      doc.text(`Cell: ${customerCell.value.trim() || "-"}`, 14, y); y += 7;
       doc.text(`Date: ${latestMeta.dateValue || "-"}`, 14, y); y += 7;
       doc.text(`Day: ${latestMeta.dayName || "-"}`, 14, y); y += 7;
       doc.text(`Month: ${latestMeta.monthName || "-"}`, 14, y); y += 7;
@@ -225,7 +278,18 @@
 
       doc.setFontSize(9);
       doc.text("For entertainment only. This generator cannot guarantee or predict winning numbers.", 14, 286);
-      doc.save(`six-number-generator-${latestMeta.dateValue || "numbers"}.pdf`);
+      return doc.output("blob");
+    }
+
+    function downloadNumbersPdf() {
+      const blob = createNumbersPdfBlob();
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `six-number-generator-${latestMeta.dateValue || "numbers"}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
     }
 
     function pickUniqueNumbers(rng, count, min, max, exclude = []) {
