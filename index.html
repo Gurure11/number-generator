@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>QuickBase | On Point Group Operations Management</title>
+  <title>Onpoint Base | On Point Group Operations Management</title>
   <style>
     * {
       margin: 0;
@@ -93,6 +93,21 @@
     .nav-link.active {
       background: #3b82f6;
       color: white;
+    }
+
+    .nav-badge {
+      margin-left: auto;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 999px;
+      background: #ef4444;
+      color: white;
+      font-size: 11px;
+      font-weight: 800;
+      display: none;
+      align-items: center;
+      justify-content: center;
     }
 
     .main {
@@ -754,7 +769,7 @@
 <body>
 <div id="loginScreen" class="login-screen">
   <div class="login-card">
-    <h1>QuickBase Login</h1>
+    <h1>OnpointBase Login</h1>
     <p>Sign in with your Users tab credentials.</p>
     <div class="form-field" style="margin-bottom:14px">
       <label>Email</label>
@@ -769,12 +784,12 @@
       <button class="btn-primary" id="loginBtn">Sign in</button>
     </div>
     <div id="loginMessage" class="message-bar"></div>
-    <div class="login-note">Users are fetched from Google Sheet tab <strong>Users</strong>. Required columns: User ID, Full Name, Email, Department, Role, Status, Join Date, Password, User Rights, Whatsapp No.</div>
+    <div class="login-note">Users are fetched from Google Sheet tab <strong>Users</strong>. Required columns: User ID, Full Name, Email, Department, Role, Status, Join Date, Password, User Rights, Whatsapp No., Cost Center</div>
   </div>
 </div>
 <div class="app" id="appShell" style="display:none">
   <aside class="sidebar">
-    <div class="brand">Quick<span>Base</span></div>
+    <div class="brand">Onpoint<span>Base</span></div>
     <div class="org-name">🏢 On Point Group<br>Operations Management</div>
     <div class="nav">
       <div class="nav-section">Main</div>
@@ -790,6 +805,7 @@
       <div class="nav-link" data-section="myTickets">📥 My Tickets</div>
       <div class="nav-link" data-section="sentTickets">📤 Sent Tickets</div>
       <div class="nav-link" data-section="approvals">✅ Approvals</div>
+      <div class="nav-link" data-section="scoringBasket">🧺 Scoring <span id="scoringBasketBadge" class="nav-badge"></span></div>
       <div class="nav-link" data-section="hiringRequests">🧑‍💼 Hiring Requests</div>
       <div class="nav-link" data-section="kpis">📊 KPIs</div>
       <div class="nav-link" data-section="sla">⏱️ SLA</div>
@@ -805,20 +821,22 @@
 
 <script>
   // ==================== CONFIGURATION ====================
-  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbybH12Veor7tJK54_Afwr25opqOAzOQg-ZCUHoHLL-2N1cfQq_PC7_twqhIf9EAv8ljJw/exec';
+  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbygdxsGP6Gm_dRVLVhdNIEsPkx7junQTdcHx3z9RkXJR8GAOrVJUr6xagrMqxuupF2Muw/exec';
   const SHEET_ID = '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
   const TASK_PROOF_DRIVE_FOLDER_ID = '19GoN9yzz0ODP_F-4ffba_olb3cD0b0f4';
 
   const SHEET_ROUTES = {
-    tickets: { action: 'tickets', saveAction: 'addTicket', sheetTab: 'Tasks', displayTab: 'Tickets', columns: ['Ticket ID', 'Title', 'Task Description', 'Priority', 'Status', 'Department', 'Assigned To', 'Due Date'] },
+    tickets: { action: 'tickets', saveAction: 'addTicket', sheetTab: 'Tasks', displayTab: 'Tickets', columns: ['Ticket ID', 'Title', 'Task Description', 'Priority', 'Status', 'Department', 'Cost Center', 'Assigned To', 'Due Date'] },
+    sentTickets: { action: 'sentTickets', saveAction: 'addSentTicket', sheetTab: 'Sent_Tickets', displayTab: 'Sent Tickets', columns: ['Ticket ID', 'Title', 'Task Description', 'Priority', 'Status', 'Department', 'Cost Center', 'Assigned To', 'Due Date', 'Created By'] },
     departments: { action: 'departments', saveAction: 'addDepartment', sheetTab: 'Department', displayTab: 'Departments', columns: ['Department ID', 'Department Name', 'Manager', 'Budget', 'Status', 'Created Date'] },
     employees: { action: 'employees', saveAction: 'addEmployee', sheetTab: 'Employees', displayTab: 'Employees', columns: ['Employee ID', 'Employee Name', 'Department', 'Role', 'Status', 'Created Date'] },
     kpis: { action: 'kpis', saveAction: 'addKpi', sheetTab: 'KPIs', displayTab: 'KPIs', columns: ['KPIName', 'Target Value', 'Actual Value', 'Related Department', 'Frequency'] },
     sla: { action: 'sla', saveAction: 'addSla', sheetTab: 'SLA', displayTab: 'SLA', columns: ['SLA Name', 'Description', 'Priority', 'First Response', 'Resolution Target', 'Status'] },
     bsc: { action: 'bscMetrics', saveAction: 'addBscMetrics', sheetTab: 'BSC', displayTab: 'BSC Metrics', columns: ['BSC Name', 'BSC Description', 'Target Score', 'Actual Score', 'Related Department', 'Frequency'] },
     divisions: { action: 'divisions', saveAction: 'addDivision', sheetTab: 'divisions', displayTab: 'Divisions', columns: ['Division ID', 'Division Name', 'Head', 'Region', 'Status'] },
-    automatedTasks: { action: 'automatedTasks', saveAction: 'addAutomatedTask', sheetTab: 'Automated Tasks', displayTab: 'Automated Tasks', columns: ['Ticket ID', 'Task ID', 'Task Name', 'Description', 'Frequency', 'Assigned To', 'Assigned Email', 'Department', 'Next Run', 'Status'] },
-    users: { action: 'users', saveAction: 'addUser', sheetTab: 'Users', displayTab: 'Users', columns: ['User ID', 'Full Name', 'Email', 'Department', 'Roles', 'Status', 'Join Date', 'Password', 'User Rights', 'Whatsapp No.'] },
+    automatedTasks: { action: 'automatedTasks', saveAction: 'addAutomatedTask', sheetTab: 'Automated Tasks', displayTab: 'Automated Tasks', columns: ['Ticket ID', 'Task ID', 'Task Name', 'Description', 'Frequency', 'Assigned To', 'Assigned Email', 'whatsapp No.', 'Cost Center', 'Department', 'Next Run', 'Status'] },
+    taskUpdates: { action: 'taskUpdates', saveAction: 'submitTaskUpdate', sheetTab: 'Task Updates', displayTab: 'Task Updates', columns: ['Ticket ID', 'Task ID', 'Task Name', 'Task Response', 'Proof link', 'Executive Score Comment'] },
+    users: { action: 'users', saveAction: 'addUser', sheetTab: 'Users', displayTab: 'Users', columns: ['User ID', 'Full Name', 'Email', 'Department', 'Roles', 'Status', 'Join Date', 'Password', 'User Rights', 'Whatsapp No.', 'Cost Center'] },
     hiringRequests: { action: 'hiringRequests', saveAction: 'addHiringRequest', sheetTab: 'Hiring Requests', displayTab: 'Hiring Requests', columns: ['Ticket Number', 'Request Date', 'Requested By', 'Requested By Email', 'Department', 'Position', 'Reason', 'Priority', 'Status', 'Approval 1', 'Approval 1 By', 'Approval 1 Date', 'Approval 2', 'Approval 2 By', 'Approval 2 Date', 'HR Task Status'] }
   };
 
@@ -875,6 +893,9 @@
 
   const AUTO_TASK_EXECUTIVE_REVIEW_KEY = 'quickbase_auto_task_executive_reviews';
   const AUTO_TASK_EXECUTIVE_ALERT_SUPPRESS_KEY = 'quickbase_auto_task_executive_alert_suppressions';
+  const SCORE_SUMMARY_PASSWORD = 'Onpoint2026';
+  const SCORE_SUMMARY_ACCESS_KEY = 'quickbase_score_summary_access';
+  const OTHER_TASKS_ACCESS_KEY = 'quickbase_other_tasks_access';
 
   function getMonthKey(value) {
     const date = dateOnly(value);
@@ -913,6 +934,46 @@
     if (key.includes('late') || key.includes('50%') || key === '50') return 'Late Done';
     if (key.includes('task done') || key.includes('done') || key.includes('complete') || key.includes('yes') || key.includes('on time') || key.includes('early') || key.includes('100%') || key === '100') return 'On Time';
     return text;
+  }
+
+
+
+  function automatedTaskDecisionPercent(value) {
+    const normalized = normalizeAutomatedTaskReviewValue(value);
+    if (normalized === 'On Time') return 100;
+    if (normalized === 'Late Done') return 50;
+    if (normalized === 'Not Done') return 0;
+    const numeric = parseFloat(String(value || '').replace('%', ''));
+    return Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : null;
+  }
+
+  function getAutomatedTaskExecutiveReviewDetails(task, monthOverride = '') {
+    const month = monthOverride || task.__autoOccurrenceMonth || getMonthKey(getTaskDueDate(task));
+    const reviews = getStoredAutomatedTaskReviews();
+    const reviewRow = reviews[getAutomatedTaskReviewKey(task, month)] || {};
+    const byExecutive = reviewRow.byExecutive || {};
+    return EXECUTIVE_MANAGERS.map(manager => {
+      const key = String(manager.email || manager.name || '').trim().toLowerCase();
+      const review = byExecutive[key] || {};
+      const decision = normalizeAutomatedTaskReviewValue(review.decision || '');
+      const percent = automatedTaskDecisionPercent(decision);
+      return { key, name: manager.name, email: manager.email, decision, percent, comment: review.executiveComment || '', reviewedBy: review.reviewedBy || '', reviewedDate: review.reviewedDate || '' };
+    });
+  }
+
+  function getAutomatedTaskAverageScorePercent(task, monthOverride = '') {
+    const details = getAutomatedTaskExecutiveReviewDetails(task, monthOverride).filter(item => item.percent !== null);
+    const requiredCount = EXECUTIVE_MANAGERS.length || 1;
+    if (details.length < requiredCount) return null;
+    return Math.round(details.reduce((sum, item) => sum + item.percent, 0) / details.length);
+  }
+
+  function automatedTaskScoreBreakdownHtml(task) {
+    const details = getAutomatedTaskExecutiveReviewDetails(task, task.__autoOccurrenceMonth);
+    const avg = getAutomatedTaskAverageScorePercent(task, task.__autoOccurrenceMonth);
+    const detailText = details.map(item => `${escapeHtml(item.name)}: ${item.percent === null ? 'Waiting' : item.percent + '%'}`).join('<br>');
+    const avgText = avg === null ? 'Waiting both executives' : `Average: ${avg}%`;
+    return `<span style="font-size:12px;line-height:1.5;display:inline-block">${detailText}<br><strong>${escapeHtml(avgText)}</strong></span>`;
   }
 
   function getAutomatedTaskExecutiveReview(task, monthOverride = '', executiveKey = '') {
@@ -976,7 +1037,7 @@
     return !!getAutomatedTaskExecutiveReview(task, monthOverride, currentKey);
   }
 
-  async function saveAutomatedTaskExecutiveReview(task, decision, monthOverride = '') {
+  async function saveAutomatedTaskExecutiveReview(task, decision, monthOverride = '', executiveComment = '') {
     const reviews = getStoredAutomatedTaskReviews();
     const key = getAutomatedTaskReviewKey(task, monthOverride);
     const reviewedBy = currentUser?.['Full Name'] || currentUser?.Email || 'Executive Manager';
@@ -986,8 +1047,10 @@
     const month = monthOverride || task.__autoOccurrenceMonth || getMonthKey(getTaskDueDate(task));
     reviews[key] = reviews[key] || {};
     reviews[key].byExecutive = reviews[key].byExecutive || {};
-    reviews[key].byExecutive[executiveKey] = { decision, reviewedBy, reviewedByEmail, reviewedDate };
+    reviews[key].byExecutive[executiveKey] = { decision, reviewedBy, reviewedByEmail, reviewedDate, executiveComment };
     saveStoredAutomatedTaskReviews(reviews);
+    const averageScorePercent = getAutomatedTaskAverageScorePercent(task, month);
+    const fullyScored = averageScorePercent !== null;
 
     try {
       await apiPost('updateAutomatedTaskReview', {
@@ -995,6 +1058,15 @@
         taskName: task['Task Name'] || task.taskName || task.Title || '',
         month,
         executiveOnTimeReview: decision,
+        executiveScorePercent: automatedTaskDecisionPercent(decision),
+        executiveAverageScorePercent: averageScorePercent === null ? '' : averageScorePercent,
+        finalScorePercent: averageScorePercent === null ? '' : averageScorePercent,
+        status: fullyScored ? 'Closed' : 'Completed - Awaiting Review',
+        Status: fullyScored ? 'Closed' : 'Completed - Awaiting Review',
+        executiveScoreComment: executiveComment,
+        'Executive Score Comment': executiveComment,
+        taskUpdateExecutiveComment: executiveComment,
+        taskUpdateSheetTab: 'Task Updates',
         reviewedBy,
         reviewedByEmail,
         reviewedDate,
@@ -1010,48 +1082,50 @@
     }
   }
 
-  async function showAutomatedTaskDueExecutiveAlerts() {
-    if (!isExecutive()) return;
+  async function getDueExecutiveScoringTasks() {
+    if (!isExecutive()) return [];
+    const automatedTasks = await safeGet('automatedTasks');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dueTasks = expandAutomatedTaskMonthlyOccurrences(automatedTasks || [], true).filter(task => {
+      const due = dateOnly(getTaskDueDate(task));
+      const statusText = String(task.Status || task.status || '').toLowerCase();
+      if (statusText.includes('paused')) return false;
+      const completedForReview = statusText.includes('completed') || statusText.includes('awaiting review');
+      const pastDue = !!due && due <= today;
+      if (!completedForReview && !pastDue) return false;
+      return !hasCurrentExecutiveReviewedAutomatedTask(task, task.__autoOccurrenceMonth);
+    });
+    return dueTasks.sort((a, b) => String(getTaskDueDate(a)).localeCompare(String(getTaskDueDate(b))) || String(getAssigneeName(a)).localeCompare(String(getAssigneeName(b))));
+  }
+
+  async function updateScoringBasketBadge() {
     try {
-      const automatedTasks = await safeGet('automatedTasks');
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const dueTasks = expandAutomatedTaskMonthlyOccurrences(automatedTasks || [], true).filter(task => {
-        const due = dateOnly(getTaskDueDate(task));
-        if (!due || due > today) return false;
-        if (String(task.Status || task.status || '').toLowerCase().includes('paused')) return false;
-        return !hasCurrentExecutiveReviewedAutomatedTask(task, task.__autoOccurrenceMonth);
-      });
-
-      dueTasks.sort((a, b) => String(getTaskDueDate(a)).localeCompare(String(getTaskDueDate(b))) || String(getAssigneeName(a)).localeCompare(String(getAssigneeName(b))));
-
-      for (const task of dueTasks) {
-        const name = task['Task Name'] || task.taskName || task.Title || 'Automated task';
-        const assignee = getAssigneeName(task) || 'Assignee';
-        const dueText = getTaskDueDate(task) || 'this month';
-        const monthText = monthLabelFromKey(task.__autoOccurrenceMonth);
-        const answer = prompt(`Automated task due alert for executives:\n\n${name}\nAssigned to: ${assignee}\nDue date: ${dueText}\nMonth: ${monthText}\n\nSelect result for this month:\n1 = Done early / on time (100%)\n2 = Done late (50%)\n3 = Not done (0%)`, '1');
-        if (answer === null) continue;
-        const cleanAnswer = String(answer).trim().toLowerCase();
-        let decision = '';
-        if (cleanAnswer === '1' || cleanAnswer.includes('early') || cleanAnswer.includes('on time') || cleanAnswer === 'yes') decision = 'On Time';
-        else if (cleanAnswer === '2' || cleanAnswer.includes('late done') || cleanAnswer.includes('done late')) decision = 'Late Done';
-        else if (cleanAnswer === '3' || cleanAnswer.includes('not') || cleanAnswer === 'no') decision = 'Not Done';
-        if (!decision) {
-          alert('No valid option selected. Please enter 1, 2, or 3 next time.');
-          continue;
-        }
-        await saveAutomatedTaskExecutiveReview(task, decision, task.__autoOccurrenceMonth);
-        suppressAutomatedTaskExecutiveAlert(task, task.__autoOccurrenceMonth);
-      }
+      const badge = document.getElementById('scoringBasketBadge');
+      if (!badge) return;
+      if (!isExecutive()) { badge.style.display = 'none'; return; }
+      const dueTasks = await getDueExecutiveScoringTasks();
+      badge.textContent = dueTasks.length;
+      badge.style.display = dueTasks.length ? 'inline-flex' : 'none';
     } catch(e) {
-      console.warn('Executive automated task due alert failed:', e);
+      console.warn('Scoring basket badge update failed:', e);
     }
+  }
+
+  async function showAutomatedTaskDueExecutiveAlerts() {
+    // Scoring pop-up alerts are intentionally suppressed.
+    // Executives now review due/past-due automated task scoring from the Scoring basket in the navigation bar.
+    await updateScoringBasketBadge();
   }
 
   const FALLBACK_USERS = [...new Set([...Object.keys(SYSTEM_USER_EMAILS), 'Bongeka'])];
   let SYSTEM_USERS = [...FALLBACK_USERS];
-  const DEPARTMENT_OPTIONS = ['Admin', 'Business Development', 'Finance & IT', 'Fleet', 'HR', 'Operations', 'Procurements', 'Sales', 'SHEQ', 'Tendering', 'Warehouse'];
+  const DEPARTMENT_OPTIONS = ['Admin','Business Assurance','Facilities', 'Business Development', 'Finance & IT', 'Fleet', 'HR', 'Operations', 'Procurements', 'Sales', 'SHEQ', 'Tendering', 'Warehouse'];
+  const COST_CENTER_OPTIONS = ['Onpoint Ontime', 'Onpoint Group', 'Nkanyezi', 'Distinct', 'Aqua Telecom'];
+
+  function costCenterOptionsHtml(selected = '') {
+    return `<option value="">Select cost center</option>` + COST_CENTER_OPTIONS.map(name => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('');
+  }
 
   function departmentOptionsHtml(selected = '') {
     return `<option value="">Select department</option>` + DEPARTMENT_OPTIONS.map(name => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('');
@@ -1438,10 +1512,16 @@ Please log in to QuickBase to continue.`;
       
       let whatsappOpened = false;
       if (!options.skipWhatsApp) {
-        whatsappOpened = openAssigneeWhatsApp(payload, messageId);
+        const whatsappPhone = payload.whatsappNo || payload['whatsapp No.'] || payload['Whatsapp No.'] || payload['WhatsApp No.'] || payload['WhatsApp No'] || payload.whatsappNumber || '';
+        if (whatsappPhone) {
+          const sendWhatsApp = confirm(`Email notification has been processed.\n\nDo you want to send the same task message on WhatsApp to ${payload.assignedTo || 'the assignee'}?`);
+          if (sendWhatsApp) whatsappOpened = openAssigneeWhatsApp(payload, messageId);
+        } else {
+          showMessage('WhatsApp number missing for selected assignee. WhatsApp skipped.', 'info', messageId);
+        }
       }
-      
-      alert(`${successMessage}${emailSent ? ' Email notification sent.' : ''}${whatsappOpened ? ' WhatsApp message opened.' : ''}`);
+
+      alert(`${successMessage}${emailSent ? ' Email notification sent.' : ''}${whatsappOpened ? ' WhatsApp link opened.' : ''}`);
       if (typeof options.afterSuccess === 'function') options.afterSuccess(res);
       return res;
     } catch(e) {
@@ -1469,12 +1549,28 @@ Please log in to QuickBase to continue.`;
     return (match && (match.Email || match['Email Address'] || match.WorkEmail || match['Work Email'])) || '';
   }
 
+  function findUserRowByName(name) {
+    const wanted = normalizeName(name);
+    if (!wanted) return null;
+    return cachedPeopleRows.find(row => normalizeName(row['Full Name'] || row['Employee Name'] || row.Name || row.User) === wanted) || null;
+  }
+
+  function findDepartmentForUser(name) {
+    const row = findUserRowByName(name);
+    return (row && (row.Department || row.department || row['Assigned Department'])) || '';
+  }
+
+  function findCostCenterForUser(name) {
+    const row = findUserRowByName(name);
+    return (row && (row['Cost Center'] || row.CostCenter || row['Cost Centre'] || row.CostCentre || row.costCenter || row.costCentre)) || '';
+  }
+
   function findWhatsAppForUser(name) {
     const wanted = normalizeName(name);
     if (!wanted) return '';
 
     // Prefer the Users tab value. The Users tab has the official last-column header:
-    // User ID, Full Name, Email, Department, Role, Status, Join Date, Join Date, Password, User Rights, Whatsapp No.
+    // User ID, Full Name, Email, Department, Role, Status, Join Date, Join Date, Password, User Rights, Whatsapp No., Cost Center
     const matches = cachedPeopleRows.filter(row => normalizeName(row['Full Name'] || row['Employee Name'] || row.Name || row.User) === wanted);
     const whatsappKeys = ['Whatsapp No.', 'whatsapp No.', 'WhatsApp No.', 'WhatsApp No', 'Whatsapp No', 'Whatsapp Number', 'WhatsApp Number', 'Whatsapp', 'WhatsApp'];
     for (const row of matches) {
@@ -1515,14 +1611,25 @@ Please log in to QuickBase to continue.`;
     showMessage(`WhatsApp opened for ${phone}. The message is pre-filled for the assignee.`, 'success', messageId);
     return true;
   }
-  function wireAssigneeEmail(selectId, emailId, whatsappId = '') {
+  function setSelectValueIfPresent(select, value) {
+    if (!select || !value) return;
+    const wanted = String(value).trim().toLowerCase();
+    const option = Array.from(select.options || []).find(opt => String(opt.value || opt.textContent || '').trim().toLowerCase() === wanted);
+    if (option) select.value = option.value;
+  }
+
+  function wireAssigneeEmail(selectId, emailId, whatsappId = '', departmentId = '', costCenterId = '') {
     const select = document.getElementById(selectId);
     const email = document.getElementById(emailId);
     const whatsapp = whatsappId ? document.getElementById(whatsappId) : null;
+    const department = departmentId ? document.getElementById(departmentId) : null;
+    const costCenter = costCenterId ? document.getElementById(costCenterId) : null;
     if (!select || !email) return;
     const sync = () => {
       email.value = findEmailForUser(select.value);
       if (whatsapp) whatsapp.value = findWhatsAppForUser(select.value);
+      if (department) setSelectValueIfPresent(department, findDepartmentForUser(select.value));
+      if (costCenter) setSelectValueIfPresent(costCenter, findCostCenterForUser(select.value));
     };
     select.addEventListener('change', sync);
     sync();
@@ -1533,7 +1640,7 @@ Please log in to QuickBase to continue.`;
       const [employeesResult, usersResult] = await Promise.allSettled([apiGet('employees'), apiGet('users')]);
       const employees = employeesResult.status === 'fulfilled' && Array.isArray(employeesResult.value) ? employeesResult.value : [];
       const users = usersResult.status === 'fulfilled' && Array.isArray(usersResult.value) ? usersResult.value : [];
-      cachedPeopleRows = [...employees, ...users];
+      cachedPeopleRows = [...users, ...employees];
       const sheetNames = cachedPeopleRows.map(row => canonicalPersonName(row['Full Name'] || row['Employee Name'] || row.Name || row.User || '')).filter(Boolean);
       SYSTEM_USERS = [...new Set([...sheetNames, ...FALLBACK_USERS.map(canonicalPersonName)])];
     } catch(e) {
@@ -1572,6 +1679,7 @@ Please log in to QuickBase to continue.`;
       'Region': ['Region', 'Area'],
       'Department ID': ['Department ID', 'ID'],
       'Department Name': ['Department Name', 'Department', 'Name'],
+      'Cost Center': ['Cost Center', 'CostCenter', 'Cost Centre', 'CostCentre', 'costCenter', 'costCentre'],
       'Budget': ['Budget'],
       'Status': ['Status'],
       'Task ID': ['Task ID', 'Ticket ID', 'Ticket Number', 'ID']
@@ -1648,6 +1756,46 @@ Please log in to QuickBase to continue.`;
     const assigneeName = getAssigneeName(t);
     const assigneeEmail = getAssigneeEmail(t);
     return isSamePerson(currentName, assigneeName) || (currentEmail && currentEmail === assigneeEmail);
+  }
+
+  function hasScoreSummaryAccess() {
+    return sessionStorage.getItem(SCORE_SUMMARY_ACCESS_KEY) === 'true';
+  }
+
+  function unlockScoreSummaryAccess() {
+    const password = prompt('Enter password to view summary score for everyone:');
+    if (password === null) return false;
+    if (password === SCORE_SUMMARY_PASSWORD) {
+      sessionStorage.setItem(SCORE_SUMMARY_ACCESS_KEY, 'true');
+      if (currentSection === 'dashboard') renderDashboard();
+      return true;
+    }
+    alert('Incorrect password. You can only view your own score.');
+    return false;
+  }
+
+  function hasOtherTasksAccess() {
+    return isExecutive() || sessionStorage.getItem(OTHER_TASKS_ACCESS_KEY) === 'true';
+  }
+
+  function unlockOtherTasksAccess() {
+    const password = prompt('Enter password to view other people\'s scores and tasks:');
+    if (password === null) return false;
+    if (password === SCORE_SUMMARY_PASSWORD) {
+      sessionStorage.setItem(OTHER_TASKS_ACCESS_KEY, 'true');
+      loadCurrentSection();
+      return true;
+    }
+    alert('Incorrect password. You can only view your own score and tasks.');
+    return false;
+  }
+
+  function filterRowsToCurrentUser(rows) {
+    return (rows || []).filter(row => hasPerformanceAssignee(row) && isTaskAssignedToCurrentUser(row));
+  }
+
+  function isScoreRowForCurrentUser(row) {
+    return isSamePerson(getCurrentUserName(), row?.name || '') || (String(currentUser?.Email || '').trim().toLowerCase() && String(row?.name || '').trim().toLowerCase() === String(currentUser?.Email || '').trim().toLowerCase());
   }
 
   function renderRowsHtml(dataArray, columns) {
@@ -1753,18 +1901,39 @@ Please log in to QuickBase to continue.`;
     const ticketColumns = ['Ticket ID','Title','Task Description','Priority','Status','Department','Assigned To','Due Date','Time Remaining','Task Response','Proof Link'];
     const autoColumns = ['Ticket ID','Task ID','Task Name','Description','Frequency','Department','Next Run','Time Remaining','Status'];
     window.currentMyTicketRows = assigned.tickets;
+    window.currentMyAutomatedTaskRows = assigned.automatedTasks;
     const main = document.getElementById('mainContent');
     main.innerHTML = `
       <div class="top-bar"><div class="page-title"><h1>My Tickets</h1><p>Tickets and automated recurring tasks assigned to me</p></div><button class="refresh-btn" onclick="loadCurrentSection()">↻ Refresh</button></div>
       <div class="panel"><div class="panel-header"><h2>📋 My Tickets</h2></div><div class="table-wrapper"><table><thead><tr>${ticketColumns.map(c => `<th>${c}</th>`).join('')}<th>Comment / Proof / Submit</th></tr></thead><tbody>${assigned.tickets.length ? assigned.tickets.map((row, index) => `<tr>${ticketColumns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}<td>${myTicketActionHtml(row, index)}</td></tr>`).join('') : `<tr><td colspan="${ticketColumns.length + 1}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>
-      <div class="panel"><div class="panel-header"><h2>🔄 Automated Recurring Tasks</h2></div><div class="table-wrapper"><table><thead><tr>${autoColumns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${renderRowsHtml(assigned.automatedTasks, autoColumns)}</tbody></table></div></div>`;
+      <div class="panel"><div class="panel-header"><h2>🔄 Automated Recurring Tasks</h2></div><div class="table-wrapper"><table><thead><tr>${autoColumns.map(c => `<th>${c}</th>`).join('')}<th>Comment / Proof / Submit</th></tr></thead><tbody>${assigned.automatedTasks.length ? assigned.automatedTasks.map((row, index) => `<tr>${autoColumns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}<td>${myAutomatedTaskActionHtml(row, index)}</td></tr>`).join('') : `<tr><td colspan="${autoColumns.length + 1}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
+  }
+
+  async function saveIssuedTaskToSentTickets(payload) {
+    try {
+      const sentPayload = Object.assign({}, payload, {
+        sheetTab: 'Sent_Tickets',
+        sheetName: 'Sent_Tickets',
+        tabName: 'Sent_Tickets',
+        sourceSheetTab: 'Tasks',
+        sentDate: new Date().toISOString(),
+        'Sent Date': new Date().toISOString(),
+        createdBy: payload.createdBy || payload['Created By'] || currentUser?.['Full Name'] || currentUser?.Email || '',
+        'Created By': payload['Created By'] || payload.createdBy || currentUser?.['Full Name'] || currentUser?.Email || '',
+        createdByEmail: payload.createdByEmail || payload['Created By Email'] || currentUser?.Email || '',
+        'Created By Email': payload['Created By Email'] || payload.createdByEmail || currentUser?.Email || ''
+      });
+      await apiPost('addSentTicket', sentPayload);
+    } catch(e) {
+      console.warn('Sent Tickets save skipped:', e.message);
+    }
   }
 
   async function renderSentTickets() {
-    const tickets = await safeGet('tickets');
+    const [sentTicketsRaw, ticketsRaw] = await Promise.all([safeGet('sentTickets'), safeGet('tickets')]);
     const currentName = getCurrentUserName();
     const currentEmail = String(currentUser?.Email || '').trim().toLowerCase();
-    const mine = (tickets || []).filter(t => {
+    const isIssuedByMe = t => {
       const issuerName = getTaskIssuerName(t);
       const issuerEmail = getTaskIssuerEmail(t);
       const assigneeName = getAssigneeName(t);
@@ -1772,8 +1941,15 @@ Please log in to QuickBase to continue.`;
       const issuedByMe = isSamePerson(currentName, issuerName) || (currentEmail && currentEmail === issuerEmail);
       const assignedToSomeoneElse = !(isSamePerson(currentName, assigneeName) || (currentEmail && currentEmail === assigneeEmail));
       return issuedByMe && assignedToSomeoneElse;
+    };
+    const sentRows = Array.isArray(sentTicketsRaw) ? sentTicketsRaw.filter(isIssuedByMe) : [];
+    const taskRows = Array.isArray(ticketsRaw) ? ticketsRaw.filter(isIssuedByMe) : [];
+    const combined = [];
+    [...sentRows, ...taskRows].forEach(row => {
+      const key = getTicketIdentity(row) || `${getCellValue(row, 'Title')}__${getTaskDueDate(row)}__${getAssigneeName(row)}`;
+      if (!combined.some(existing => (getTicketIdentity(existing) || `${getCellValue(existing, 'Title')}__${getTaskDueDate(existing)}__${getAssigneeName(existing)}`) === key)) combined.push(row);
     });
-    renderSimpleTable('Tickets Sent Out', mine, ['Ticket ID','Title','Task Description','Priority','Status','Department','Assigned To','Due Date','Task Response','Proof Link'], 'Tasks');
+    renderSimpleTable('Tickets Sent Out', combined, ['Ticket ID','Title','Task Description','Priority','Status','Department','Cost Center','Assigned To','Due Date','Task Response','Proof Link'], 'Sent Tickets');
   }
 
   async function renderApprovals() {
@@ -1789,11 +1965,12 @@ Please log in to QuickBase to continue.`;
     }
 
     const [rows, ticketsRaw] = await Promise.all([safeGet('hiringRequests'), safeGet('tickets')]);
-    const approvals = (rows || []).filter(r =>
-      String(r.Status || '').toLowerCase().includes('waiting') ||
-      String(r['Approval 1'] || '').toLowerCase() === 'pending' ||
-      String(r['Approval 2'] || '').toLowerCase() === 'pending'
-    );
+    const approvals = (rows || []).filter(r => {
+      const status = String(r.Status || '').toLowerCase();
+      const hrStatus = String(r['HR Task Status'] || '').toLowerCase();
+      if (['approved', 'rejected', 'sent to hr', 'hr notified', 'completed'].some(done => status.includes(done) || hrStatus.includes(done))) return false;
+      return status.includes('waiting') || String(r['Approval 1'] || '').toLowerCase() === 'pending' || String(r['Approval 2'] || '').toLowerCase() === 'pending';
+    });
     const moreTimeRequests = (ticketsRaw || []).filter(t => String(t.Status || t.status || '').toLowerCase().includes('more time requested'));
 
     document.getElementById('mainContent').innerHTML = `
@@ -1863,6 +2040,111 @@ Please log in to QuickBase to continue.`;
   }
 
 
+
+  function getProofLinksFromRow(row) {
+    const raw = [
+      row?.['Proof link'], row?.['Proof Link'], row?.['Proof Links'],
+      row?.proofLink, row?.proofLinks, row?.['Attachment Link'], row?.attachmentLink
+    ].find(value => value !== undefined && value !== null && String(value).trim() !== '');
+    if (!raw) return [];
+    return String(raw).split(/[\n,]+/).map(v => v.trim()).filter(Boolean);
+  }
+
+  function proofLinksHtmlFromRows(rows) {
+    const links = [];
+    (rows || []).forEach(row => getProofLinksFromRow(row).forEach(link => {
+      if (!links.includes(link)) links.push(link);
+    }));
+    if (!links.length) return '<span style="font-size:12px;color:#94a3b8">No upload found</span>';
+    return links.map((link, index) => `<a href="${escapeHtml(link)}" target="_blank" rel="noopener">Uploaded content ${index + 1}</a>`).join('<br>');
+  }
+
+  function isTaskUpdateForScoringTask(update, task) {
+    const taskId = getTicketIdentity(task) || getAutomatedTaskIdentity(task);
+    const updateId = getTicketIdentity(update) || update?.['Task ID'] || update?.taskId || update?.ID || '';
+    if (!taskId || !updateId || String(taskId).trim() !== String(updateId).trim()) return false;
+    const taskMonth = task.__autoOccurrenceMonth || getMonthKey(getTaskDueDate(task));
+    const updateMonth = update?.sourceOccurrenceMonth || update?.['Source Occurrence Month'] || update?.OccurrenceMonth || update?.Month || getMonthKey(update?.completionRequestDate || update?.['Completion Request Date'] || update?.['Submitted Date'] || update?.submittedDate || update?.['Created Date']);
+    return !taskMonth || !updateMonth || String(taskMonth) === String(updateMonth);
+  }
+
+  async function getTaskUpdatesForScoring() {
+    const rows = await safeGet('taskUpdates');
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  function scoringProofLinksHtml(task) {
+    const updateRows = (window.currentScoringTaskUpdateRows || []).filter(update => isTaskUpdateForScoringTask(update, task));
+    const rows = updateRows.length ? updateRows : [task];
+    return proofLinksHtmlFromRows(rows);
+  }
+
+  function scoringExecutiveCommentHtml(index) {
+    return `<textarea id="scoringComment_${index}" rows="2" placeholder="Executive comment..." style="min-width:180px"></textarea>`;
+  }
+
+  async function renderScoringBasket() {
+    if (!isExecutive()) {
+      document.getElementById('mainContent').innerHTML = `
+        <div class="panel">
+          <div style="padding:40px;text-align:center">
+            <h2>Restricted Access</h2>
+            <p>Scoring basket is only visible to Executives.</p>
+          </div>
+        </div>`;
+      return;
+    }
+    const [dueTasks, taskUpdates] = await Promise.all([getDueExecutiveScoringTasks(), getTaskUpdatesForScoring()]);
+    window.currentScoringBasketRows = dueTasks;
+    window.currentScoringTaskUpdateRows = taskUpdates;
+    const tasksByDepartment = {};
+    dueTasks.forEach((task, index) => {
+      const department = getDepartment(task) || 'Unknown';
+      if (!tasksByDepartment[department]) tasksByDepartment[department] = [];
+      tasksByDepartment[department].push({ task, index });
+    });
+    const departmentTablesHtml = Object.keys(tasksByDepartment).sort().map(department => `
+      <div class="panel"><div class="panel-header"><h2>🧺 ${escapeHtml(department)} Automated Task Scoring</h2></div><div class="table-wrapper"><table><thead><tr><th>Task</th><th>Assigned To</th><th>Department</th><th>Due Date</th><th>Month</th><th>Status</th><th>Uploaded Content</th><th>Executive Scores</th><th>Average %</th><th>Executive Comment</th><th>Score</th></tr></thead><tbody>
+        ${tasksByDepartment[department].map(item => `
+          <tr>
+            <td><strong>${escapeHtml(item.task['Task Name'] || item.task.taskName || item.task.Title || 'Automated task')}</strong><br><span style="font-size:12px;color:#64748b">${renderExpandableTextHtml(item.task.Description || item.task.description || '', 100)}</span></td>
+            <td>${escapeHtml(getAssigneeName(item.task) || 'Assignee')}</td>
+            <td>${escapeHtml(getDepartment(item.task))}</td>
+            <td>${escapeHtml(getTaskDueDate(item.task) || '')}</td>
+            <td>${escapeHtml(monthLabelFromKey(item.task.__autoOccurrenceMonth))}</td>
+            <td>${escapeHtml(getAutomatedTaskDisplayStatus(item.task))}</td>
+            <td>${scoringProofLinksHtml(item.task)}</td>
+            <td>${automatedTaskScoreBreakdownHtml(item.task)}</td>
+            <td>${getAutomatedTaskAverageScorePercent(item.task, item.task.__autoOccurrenceMonth) === null ? '<span style="font-size:12px;color:#64748b;font-weight:700">Waiting</span>' : `<span class="score-pill ${scoreClass(getAutomatedTaskAverageScorePercent(item.task, item.task.__autoOccurrenceMonth))}">${getAutomatedTaskAverageScorePercent(item.task, item.task.__autoOccurrenceMonth)}%</span>`}</td>
+            <td>${scoringExecutiveCommentHtml(item.index)}</td>
+            <td><button class="btn-primary" onclick="scoreAutomatedTaskFromBasket(${item.index}, 'On Time')">100%</button> <button class="btn-secondary" onclick="scoreAutomatedTaskFromBasket(${item.index}, 'Late Done')">50%</button> <button class="btn-secondary" onclick="scoreAutomatedTaskFromBasket(${item.index}, 'Not Done')">0%</button></td>
+          </tr>`).join('')}
+      </tbody></table></div></div>`).join('');
+    const main = document.getElementById('mainContent');
+    main.innerHTML = `
+      <div class="top-bar"><div class="page-title"><h1>Scoring Basket</h1><p>Completed or past-due automated tasks waiting for executive scoring</p></div><button class="refresh-btn" onclick="renderScoringBasket()">↻ Refresh</button></div>
+      ${dueTasks.length ? departmentTablesHtml : '<div class="panel"><div class="panel-header"><h2>🧺 Automated Task Scoring</h2></div><div style="padding:24px;text-align:center">No scoring items waiting</div></div>'}`;
+    await updateScoringBasketBadge();
+  }
+
+  window.scoreAutomatedTaskFromBasket = async function(index, decision) {
+    const task = (window.currentScoringBasketRows || [])[index];
+    if (!task) return alert('Task not found. Refresh and try again.');
+    const label = decision === 'On Time' ? '100%' : (decision === 'Late Done' ? '50%' : '0%');
+    const taskName = task['Task Name'] || task.taskName || task.Title || 'Automated task';
+    const assignee = getAssigneeName(task) || 'Assignee';
+    const executiveComment = document.getElementById(`scoringComment_${index}`)?.value || '';
+    if (!confirm(`Confirm score before updating.\n\nTask: ${taskName}\nAssigned to: ${assignee}\nScore: ${label} (${decision})\nComment: ${executiveComment || 'No comment'}\n\nIs this correct?`)) return;
+    try {
+      await saveAutomatedTaskExecutiveReview(task, decision, task.__autoOccurrenceMonth, executiveComment);
+      suppressAutomatedTaskExecutiveAlert(task, task.__autoOccurrenceMonth);
+      await renderScoringBasket();
+    } catch(e) {
+      alert(`Could not save score: ${e.message}`);
+    }
+  };
+
+
   function dashboardConnectionStatusHtml(results) {
     const total = results.length;
     const okCount = results.filter(r => r.ok).length;
@@ -1908,10 +2190,11 @@ Please log in to QuickBase to continue.`;
 
       const dashboardAutomatedTaskRows = expandAutomatedTaskMonthlyOccurrences((automatedTasks || []).filter(hasPerformanceAssignee), true);
       const dashboardTicketRows = [...ticketsArray, ...dashboardAutomatedTaskRows];
-      const ticketStats = calculateTicketStats(dashboardTicketRows);
-      const priorityCounts = groupCount(dashboardTicketRows, t => getPriority(t));
-      const deptTicketCount = groupCount(dashboardTicketRows, t => getDepartment(t));
-      const submittedByDept = groupCount(dashboardTicketRows, t => String(t['Requester Department'] || t['Submitted By Dept'] || t.Department || t.department || 'Unknown'));
+      const visibleDashboardTicketRows = hasOtherTasksAccess() ? dashboardTicketRows : filterRowsToCurrentUser(dashboardTicketRows);
+      const ticketStats = calculateTicketStats(visibleDashboardTicketRows);
+      const priorityCounts = groupCount(visibleDashboardTicketRows, t => getPriority(t));
+      const deptTicketCount = groupCount(visibleDashboardTicketRows, t => getDepartment(t));
+      const submittedByDept = groupCount(visibleDashboardTicketRows, t => String(t['Requester Department'] || t['Submitted By Dept'] || t.Department || t.department || 'Unknown'));
       const deptScores = {};
       bsc.forEach(b => {
         const dept = b['Related Department'] || b.Department || 'General';
@@ -1922,12 +2205,10 @@ Please log in to QuickBase to continue.`;
         <div class="top-bar">
           <div class="page-title">
             <h1>Operations Dashboard</h1>
-            <p>On Point Group · 📊 ${dashboardTicketRows.length} tickets loaded</p>
+            <p>On Point Group · 📊 ${visibleDashboardTicketRows.length} tickets loaded</p>
           </div>
           <div>${connectionStatusHtml} <span class="user-chip">👤 ${escapeHtml(currentUser?.['Full Name'] || 'User')} · ${escapeHtml(getUserRole(currentUser) || '')}<span class="rights-chip">${escapeHtml(currentUser?.['User Rights'] || 'standard')}</span></span> <button class="logout-btn" onclick="logout()">Logout</button></div>
         </div>
-
-        ${ticketSummaryWindowHtml(dashboardAutomatedTaskRows, ticketStats)}
 
         <div class="task-status-grid">
           <div class="status-stat-card" onclick="currentSection='tickets';window.taskFilter='open';loadCurrentSection()" style="border-top:4px solid #3b82f6"><h3 style="color:#3b82f6">${ticketStats.open.length}</h3><p>📋 Tickets Open</p></div>
@@ -1938,7 +2219,7 @@ Please log in to QuickBase to continue.`;
 
         <div class="task-status-grid">
           <div class="status-stat-card" onclick="currentSection='tickets';window.taskFilter='closed-late';loadCurrentSection()" style="border-top:4px solid #f59e0b"><h3 style="color:#f59e0b">${ticketStats.closedLate.length}</h3><p>🟠 Closed But Late</p></div>
-          <div class="status-stat-card" onclick="currentSection='tickets';loadCurrentSection()" style="border-top:4px solid #8b5cf6"><h3 style="color:#8b5cf6">${dashboardTicketRows.length}</h3><p>🎫 Total Tickets</p></div>
+          <div class="status-stat-card" onclick="currentSection='tickets';loadCurrentSection()" style="border-top:4px solid #8b5cf6"><h3 style="color:#8b5cf6">${visibleDashboardTicketRows.length}</h3><p>🎫 Total Tickets</p></div>
           <div class="status-stat-card" onclick="currentSection='tickets';window.taskFilter=null;loadCurrentSection()" style="border-top:4px solid #0ea5e9"><h3 style="color:#0ea5e9">${Object.keys(priorityCounts).length}</h3><p>🏷️ Tickets by Priority</p></div>
           <div class="status-stat-card" onclick="currentSection='tickets';window.taskFilter=null;loadCurrentSection()" style="border-top:4px solid #6366f1"><h3 style="color:#6366f1">${Object.keys(deptTicketCount).length}</h3><p>🏢 Tickets by Department</p></div>
         </div>
@@ -1992,6 +2273,7 @@ Please log in to QuickBase to continue.`;
           <div class="form-field"><label>Assigned To</label><select id="ticketAssignee">${userOptionsHtml()}</select></div>
           <div class="form-field"><label>Assignee Email</label><input id="ticketAssigneeEmail" readonly placeholder="Auto-filled email"></div>
           <div class="form-field"><label>whatsapp No.</label><input id="ticketWhatsappNo" readonly placeholder="Auto-filled WhatsApp number"></div>
+          <div class="form-field"><label>Cost Center</label><select id="ticketCostCenter">${costCenterOptionsHtml()}</select></div>
           <div class="form-field"><label>Due Date</label><input type="date" id="ticketDueDate"></div>
         </div>
         <div class="form-row">
@@ -2016,6 +2298,7 @@ Please log in to QuickBase to continue.`;
           <div class="form-field"><label>Assigned To</label><select id="autoAssignee">${userOptionsHtml()}</select></div>
           <div class="form-field"><label>Assignee Email</label><input id="autoAssigneeEmail" readonly placeholder="Auto-filled email"></div>
           <div class="form-field"><label>whatsapp No.</label><input id="autoWhatsappNo" readonly placeholder="Auto-filled WhatsApp number"></div>
+          <div class="form-field"><label>Cost Center</label><select id="autoCostCenter">${costCenterOptionsHtml()}</select></div>
         </div>
         <div class="form-row">
           <div class="form-field"><label>Department</label><select id="autoDept">${departmentOptionsHtml()}</select></div>
@@ -2066,8 +2349,8 @@ Please log in to QuickBase to review and update this item.`
   }
 
   function wireDashboardForms() {
-    wireAssigneeEmail('ticketAssignee', 'ticketAssigneeEmail', 'ticketWhatsappNo');
-    wireAssigneeEmail('autoAssignee', 'autoAssigneeEmail', 'autoWhatsappNo');
+    wireAssigneeEmail('ticketAssignee', 'ticketAssigneeEmail', 'ticketWhatsappNo', 'ticketDept', 'ticketCostCenter');
+    wireAssigneeEmail('autoAssignee', 'autoAssigneeEmail', 'autoWhatsappNo', 'autoDept', 'autoCostCenter');
 
     document.getElementById('createTicketBtn')?.addEventListener('click', async () => {
       const ticketNumber = document.getElementById('ticketNumber')?.value || generateTicketNumber();
@@ -2087,10 +2370,17 @@ Please log in to QuickBase to review and update this item.`
         'whatsapp No.': document.getElementById('ticketWhatsappNo').value,
         'WhatsApp No.': document.getElementById('ticketWhatsappNo').value,
         'Whatsapp No.': document.getElementById('ticketWhatsappNo').value,
+        costCenter: document.getElementById('ticketCostCenter').value,
+        CostCenter: document.getElementById('ticketCostCenter').value,
+        'Cost Center': document.getElementById('ticketCostCenter').value,
         dueDate: document.getElementById('ticketDueDate').value,
         description: document.getElementById('ticketDesc').value,
         comments: document.getElementById('ticketComments').value,
         attachmentLink: document.getElementById('ticketAttachment').value,
+        createdBy: currentUser?.['Full Name'] || currentUser?.Email || '',
+        'Created By': currentUser?.['Full Name'] || currentUser?.Email || '',
+        createdByEmail: currentUser?.Email || '',
+        'Created By Email': currentUser?.Email || '',
         sheetTab: 'Tasks'
       };
       applyApprovalRules(payload);
@@ -2098,7 +2388,12 @@ Please log in to QuickBase to review and update this item.`
       Object.assign(payload, buildTaskEmailPayload('ticket', payload));
       if (!payload.title) return showMessage('Title required', 'error', 'ticketFormMessage');
       if (SEND_EMAIL_NOTIFICATIONS && !payload.emailTo) return showMessage('Assignee email is required for Gmail notification. Select an assignee with an email address.', 'error', 'ticketFormMessage');
-      await saveWithSyncAndNotify('createTicketBtn', 'ticketFormMessage', 'addTicket', payload, 'Ticket saved and synchronised.', { afterSuccess: () => setTimeout(() => renderDashboard(), 1000) });
+      await saveWithSyncAndNotify('createTicketBtn', 'ticketFormMessage', 'addTicket', payload, 'Ticket saved and synchronised.', {
+        afterSuccess: async () => {
+          await saveIssuedTaskToSentTickets(payload);
+          setTimeout(() => renderDashboard(), 1000);
+        }
+      });
     });
 
     document.getElementById('createAutoTaskBtn')?.addEventListener('click', async () => {
@@ -2121,6 +2416,9 @@ Please log in to QuickBase to review and update this item.`
         'whatsapp No.': document.getElementById('autoWhatsappNo').value,
         'WhatsApp No.': document.getElementById('autoWhatsappNo').value,
         'Whatsapp No.': document.getElementById('autoWhatsappNo').value,
+        costCenter: document.getElementById('autoCostCenter').value,
+        CostCenter: document.getElementById('autoCostCenter').value,
+        'Cost Center': document.getElementById('autoCostCenter').value,
         department: document.getElementById('autoDept').value,
         nextRun: document.getElementById('autoNextRun').value,
         status: document.getElementById('autoStatus').value,
@@ -2207,6 +2505,7 @@ Please log in to QuickBase to review and update this item.`
       return null;
     }
     const comments = prompt('Optional rating comment for the task assignee:', '') || '';
+    if (!confirm(`Confirm executive rating before updating.\n\nAssignee: ${assignee}\nScore: ${score}/5\n\nIs this correct?`)) return null;
     return {
       executiveAssigneeRating: String(score),
       'Executive Assignee Rating': String(score),
@@ -2266,19 +2565,27 @@ Please log in to QuickBase to review and update this item.`
   }
 
   function namesListHtml(rows, getter = getAssigneeName, type = '') {
-    const names = [...new Set((rows || []).map(getter).filter(Boolean))];
-    const text = names.length ? names.map(escapeHtml).join(', ') : 'No names to show';
-    return type ? clickableSummaryNamesHtml(type, text.replace(/&amp;/g, '&')) : text;
+    const count = (rows || []).length;
+    const text = count ? 'Click to view details' : 'No tickets to show';
+    return type ? clickableSummaryNamesHtml(type, text) : escapeHtml(text);
   }
 
-  function ticketSummaryWindowHtml(automatedTasks, stats) {
+  function ticketPrioritySummaryText(rows) {
+    const counts = groupCount(rows || [], t => getPriority(t));
+    const order = ['Critical', 'High', 'Medium', 'Low'];
+    const keys = [...order.filter(k => counts[k]), ...Object.keys(counts).filter(k => !order.includes(k))];
+    return keys.length ? keys.map(k => `${escapeHtml(k)}: ${counts[k]}`).join(' · ') : 'No priority tickets to show';
+  }
+
+  function ticketSummaryWindowHtml(ticketRows, stats) {
+    const priorityCounts = groupCount(ticketRows || [], t => getPriority(t));
     return `<div class="ticket-summary-window">
       <h3>Tickets Summary Window</h3>
       <div class="ticket-summary-grid">
-        <div class="ticket-summary-item" onclick="showTicketSummaryTransactions('automated')" title="Open automated task summary">
-          <div class="ticket-summary-number">${automatedTasks.length}</div>
-          <div class="ticket-summary-label">Total Automated Tasks</div>
-          <div class="ticket-summary-names">Assigned to: ${clickableSummaryNamesHtml('automated')}</div>
+        <div class="ticket-summary-item" onclick="showTicketSummaryTransactions('priority')" title="Open tickets by priority">
+          <div class="ticket-summary-number">${Object.keys(priorityCounts).length}</div>
+          <div class="ticket-summary-label">Tickets by Priority</div>
+          <div class="ticket-summary-names">${ticketPrioritySummaryText(ticketRows)}</div>
         </div>
         <div class="ticket-summary-item" onclick="showTicketSummaryTransactions('openOnTime')" title="Open these tickets">
           <div class="ticket-summary-number">${stats.openOnTime.length}</div>
@@ -2299,22 +2606,41 @@ Please log in to QuickBase to review and update this item.`
     </div>`;
   }
 
+  function summaryTransactionsPanelHtml(title, rows, columns) {
+    return `<div id="ticketSummaryTransactionsPanel" class="panel"><div class="panel-header"><h2>${escapeHtml(title)}</h2></div><div class="table-wrapper"><table><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map(row => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
+  }
+
   window.showTicketSummaryTransactions = async function(type) {
     const [ticketsRaw, automatedTasksRaw] = await Promise.all([safeGet('tickets'), safeGet('automatedTasks')]);
     const tickets = Array.isArray(ticketsRaw) ? ticketsRaw : [];
     const automatedTasks = expandAutomatedTaskMonthlyOccurrences((Array.isArray(automatedTasksRaw) ? automatedTasksRaw : []).filter(hasPerformanceAssignee), true);
-    const stats = calculateTicketStats(tickets);
+    const allRows = hasOtherTasksAccess() ? [...tickets, ...automatedTasks] : filterRowsToCurrentUser([...tickets, ...automatedTasks]);
+    const stats = calculateTicketStats(allRows);
     let title = 'Summary Transactions';
     let rows = [];
     let columns = ['Ticket ID', 'Title', 'Priority', 'Status', 'Department', 'Assigned To', 'Due Date'];
-    if (type === 'automated') {
-      title = 'Automated Task Transactions';
-      rows = automatedTasks;
-      columns = ['Ticket ID', 'Task ID', 'Task Name', 'Description', 'Frequency', 'Department', 'Next Run', 'Status'];
-    } else if (type === 'openOnTime') rows = stats.openOnTime;
-    else if (type === 'openLate') rows = stats.openLate;
-    else if (type === 'closedLate') rows = stats.closedLate;
-    renderSimpleTable(title, rows, columns, type === 'automated' ? 'Automated Tasks' : 'Tasks');
+    if (type === 'priority') {
+      title = 'Tickets by Priority';
+      rows = [...allRows].sort((a, b) => {
+        const order = { critical: 0, high: 1, medium: 2, low: 3 };
+        const left = order[String(getPriority(a)).toLowerCase()] ?? 9;
+        const right = order[String(getPriority(b)).toLowerCase()] ?? 9;
+        return left - right || String(getPriority(a)).localeCompare(String(getPriority(b))) || String(getTicketIdentity(a)).localeCompare(String(getTicketIdentity(b)));
+      });
+    } else if (type === 'openOnTime') { title = 'Open Tickets On Time'; rows = stats.openOnTime; }
+    else if (type === 'openLate') { title = 'Open Tickets But Late'; rows = stats.openLate; }
+    else if (type === 'closedLate') { title = 'Closed But Late'; rows = stats.closedLate; }
+
+    const main = document.getElementById('mainContent');
+    const existing = document.getElementById('ticketSummaryTransactionsPanel');
+    if (existing) existing.remove();
+    const topBar = main ? main.querySelector('.top-bar') : null;
+    if (main && topBar) {
+      topBar.insertAdjacentHTML('afterend', summaryTransactionsPanelHtml(title, rows, columns));
+      document.getElementById('ticketSummaryTransactionsPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      renderSimpleTable(title, rows, columns, 'Tasks');
+    }
   };
 
   function getTicketIdentity(task) {
@@ -2335,7 +2661,12 @@ Please log in to QuickBase to review and update this item.`
 
   function myTicketActionHtml(task, index) {
     if (isClosedTicket(task)) return '<span class="badge badge-open">Completed</span>';
-    return `<button class="btn-secondary" onclick="showTaskAssigneeUpdateForm(${index})">Update / Submit</button>`;
+    return `<button class="btn-secondary" onclick="showTaskAssigneeUpdateForm(${index}, 'ticket')">Update / Submit</button>`;
+  }
+
+  function myAutomatedTaskActionHtml(task, index) {
+    if (isAutomatedTaskClosed(task) || hasBothExecutiveAutomatedTaskReviews(task, task.__autoOccurrenceMonth)) return '<span class="badge badge-open">Completed</span>';
+    return `<button class="btn-secondary" onclick="showTaskAssigneeUpdateForm(${index}, 'automated')">Update / Submit</button>`;
   }
 
   function taskAssigneeUpdateFormHtml(task) {
@@ -2353,9 +2684,10 @@ Please log in to QuickBase to review and update this item.`
     </div></div>`;
   }
 
-  window.showTaskAssigneeUpdateForm = function(index) {
+  window.showTaskAssigneeUpdateForm = function(index, type = 'ticket') {
     window.currentAssigneeTaskIndex = index;
-    const task = (window.currentMyTicketRows || [])[index];
+    window.currentAssigneeTaskType = type;
+    const task = type === 'automated' ? (window.currentMyAutomatedTaskRows || [])[index] : (window.currentMyTicketRows || [])[index];
     if (!task) return alert('Task not found. Refresh and try again.');
     const existing = document.getElementById('taskAssigneeUpdatePanel');
     if (existing) existing.remove();
@@ -2387,7 +2719,8 @@ Please log in to QuickBase to review and update this item.`
   }
 
   window.submitTaskAssigneeUpdate = async function() {
-    const task = (window.currentMyTicketRows || [])[window.currentAssigneeTaskIndex];
+    const isAutomated = window.currentAssigneeTaskType === 'automated';
+    const task = isAutomated ? (window.currentMyAutomatedTaskRows || [])[window.currentAssigneeTaskIndex] : (window.currentMyTicketRows || [])[window.currentAssigneeTaskIndex];
     if (!task) return alert('Task not found. Refresh and try again.');
     const comment = document.getElementById('taskAssigneeComment')?.value || '';
     const files = document.getElementById('taskProofFile')?.files || [];
@@ -2421,7 +2754,9 @@ Please log in to QuickBase to review and update this item.`
         status: moreTime ? 'More Time Requested' : 'Completed - Awaiting Review',
         Status: moreTime ? 'More Time Requested' : 'Completed - Awaiting Review',
         sheetTab: 'Task Updates',
-        taskStatusSheetTab: 'Tasks'
+        taskStatusSheetTab: isAutomated ? 'Automated Tasks' : 'Tasks',
+        sourceTaskType: isAutomated ? 'Automated Task' : 'Task',
+        sourceOccurrenceMonth: isAutomated ? (task.__autoOccurrenceMonth || '') : ''
       });
       const submitResult = await apiPost('submitTaskUpdate', payload);
       if (!submitResult || submitResult.success === false) throw new Error((submitResult && submitResult.message) || 'Task update failed.');
@@ -2608,16 +2943,16 @@ Please log in to QuickBase to review and update this item.`
       if (!dueDate || (dueMonthStart && dueMonthStart >= currentMonthStart)) {
         return { earned: 0, possible: 0, isClosed: false, isOpenLate: false, isClosedLate: false, responseDays, type, notYetScored: true };
       }
-      if (!executiveReview || !hasBothExecutiveAutomatedTaskReviews(item, item.__autoOccurrenceMonth)) {
+      const averageScorePercent = getAutomatedTaskAverageScorePercent(item, item.__autoOccurrenceMonth);
+      if (averageScorePercent === null) {
         return { earned: 0, possible: 0, isClosed: false, isOpenLate: true, isClosedLate: false, responseDays, type, waitingExecutiveReview: true };
       }
-      const autoEarned = reviewedOnTime ? 100 : (reviewedLateDone ? 50 : 0);
       return {
-        earned: autoEarned,
+        earned: averageScorePercent,
         possible: 100,
         isClosed: true,
         isOpenLate: false,
-        isClosedLate: reviewedLateDone || reviewedNotDone,
+        isClosedLate: averageScorePercent < 100,
         responseDays,
         type
       };
@@ -2772,7 +3107,8 @@ Please log in to QuickBase to review and update this item.`
       if (!monthKey) return;
       const key = getPerformanceAssigneeKey(item);
       const name = getPerformanceAssigneeName(item);
-      if (!people[key]) people[key] = { name, months: {}, earned: 0, possible: 0 };
+      if (!people[key]) people[key] = { name, department: getDepartment(item) || 'Unknown', months: {}, earned: 0, possible: 0 };
+      if (!people[key].department || people[key].department === 'Unknown') people[key].department = getDepartment(item) || people[key].department || 'Unknown';
       if (!people[key].months[monthKey]) people[key].months[monthKey] = { tickets: 0, automated: 0, total: 0, earned: 0, possible: 0, waiting: 0 };
       const month = people[key].months[monthKey];
       month.total += 1;
@@ -2801,14 +3137,18 @@ Please log in to QuickBase to review and update this item.`
   function monthlyPerformanceSummaryHtml(tickets, automatedTasks) {
     const summary = calculateMonthlyPerformanceScores(tickets, automatedTasks);
     const months = summary.months;
-    const rows = summary.rows;
+    let rows = summary.rows;
+    const canViewAllScores = hasScoreSummaryAccess();
+    if (!canViewAllScores) rows = rows.filter(isScoreRowForCurrentUser);
     if (!months.length || !rows.length) {
       return `<div class="performance-score-card"><div class="panel-header"><h2>📅 Monthly Performance Summary</h2></div><p class="score-note">Monthly scores will show after tickets are scored and automated tasks have passed due date with executive review.</p></div>`;
     }
+    const departmentNames = [...new Set(rows.map(row => row.department || 'Unknown'))].sort();
+    const departmentChartHtml = departmentNames.map((department, index) => `<div class="chart-card" style="margin:0 24px 18px 24px"><h3>Monthly Performance Trend - ${escapeHtml(department)}</h3><p>Continuous monthly score trend for ${escapeHtml(department)}</p><canvas class="monthlyPerformanceDeptChart" id="monthlyPerformanceChart_${index}" data-department="${escapeHtml(department)}"></canvas></div>`).join('');
     return `<div class="performance-score-card">
-      <div class="panel-header"><h2>📅 Monthly Performance Summary</h2></div>
-      <p class="score-note">Monthly score by person. Monthly automated tasks repeat continuously from their first due month until paused. Executive scoring for recurring tasks: done early/on time = 100%, done late = 50%, not done = 0%. Future due months show as waiting.</p>
-      <div class="chart-card" style="margin:0 24px 18px 24px"><h3>Monthly Performance Trend</h3><p>Continuous monthly score trend per person</p><canvas id="monthlyPerformanceChart"></canvas></div>
+      <div class="panel-header"><h2>📅 Monthly Performance Summary</h2>${!canViewAllScores ? '<button class="btn-secondary" onclick="unlockScoreSummaryAccess()">View Everyone</button>' : ''}</div>
+      <p class="score-note">${canViewAllScores ? 'Monthly score by person.' : 'Showing your monthly score only. Enter password to view everyone.'} Monthly automated tasks repeat continuously from their first due month until paused. Executive scoring for recurring tasks: done early/on time = 100%, done late = 50%, not done = 0%. Future due months show as waiting.</p>
+      ${departmentChartHtml}
       <div class="table-wrapper"><table><thead><tr><th>Person</th>${months.map(m => `<th>${escapeHtml(monthLabelFromKey(m))}</th>`).join('')}<th>Overall</th></tr></thead><tbody>${rows.map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong></td>${months.map(monthKey => {
         const month = row.months[monthKey];
         if (!month) return '<td>-</td>';
@@ -2821,35 +3161,119 @@ Please log in to QuickBase to review and update this item.`
 
   function renderMonthlyPerformanceChart(tickets, automatedTasks) {
     if (typeof Chart === 'undefined') return;
-    const canvas = document.getElementById('monthlyPerformanceChart');
-    if (!canvas) return;
+    const canvases = document.querySelectorAll('.monthlyPerformanceDeptChart');
+    if (!canvases.length) return;
     const summary = calculateMonthlyPerformanceScores(tickets, automatedTasks);
     const labels = summary.months.map(monthLabelFromKey);
-    const datasets = summary.rows.map(row => ({
-      label: row.name,
-      data: summary.months.map(monthKey => {
-        const month = row.months[monthKey];
-        return month && month.possible ? Math.round((month.earned / month.possible) * 100) : null;
-      }),
-      tension: 0.25,
-      spanGaps: true
-    }));
-    destroyChart('monthlyPerformance');
-    charts.monthlyPerformance = new Chart(canvas.getContext('2d'), {
-      type: 'line',
-      data: { labels, datasets },
-      options: { responsive: true, scales: { y: { min: 0, max: 100, ticks: { callback: value => `${value}%` } } } }
+    const chartRows = hasScoreSummaryAccess() ? summary.rows : summary.rows.filter(isScoreRowForCurrentUser);
+    Object.keys(charts).filter(name => name.startsWith('monthlyPerformanceDept_')).forEach(destroyChart);
+    canvases.forEach((canvas, index) => {
+      const department = canvas.dataset.department || 'Unknown';
+      const departmentRows = chartRows.filter(row => (row.department || 'Unknown') === department);
+      const datasets = departmentRows.map(row => ({
+        label: row.name,
+        data: summary.months.map(monthKey => {
+          const month = row.months[monthKey];
+          return month && month.possible ? Math.round((month.earned / month.possible) * 100) : null;
+        }),
+        tension: 0.25,
+        spanGaps: true
+      }));
+      const chartName = `monthlyPerformanceDept_${index}`;
+      destroyChart(chartName);
+      charts[chartName] = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { labels, datasets },
+        options: { responsive: true, scales: { y: { min: 0, max: 100, ticks: { callback: value => `${value}%` } } } }
+      });
     });
   }
 
   function performanceScoreSystemHtml(tickets, automatedTasks) {
-    const scores = calculatePerformanceScores(tickets, expandAutomatedTaskMonthlyOccurrences(automatedTasks || [], false));
+    const canViewAllScores = hasScoreSummaryAccess();
+    const expandedAuto = expandAutomatedTaskMonthlyOccurrences(automatedTasks || [], false);
+    let scores = calculatePerformanceScores(tickets, expandedAuto);
+    if (!canViewAllScores) scores = scores.filter(isScoreRowForCurrentUser);
+    let scoredTaskRows = expandedAuto.filter(hasPerformanceAssignee).filter(task => hasOtherTasksAccess() || isTaskAssignedToCurrentUser(task));
+    const scoreDetailsHtml = scoredTaskRows.length ? `<div class="table-wrapper"><table><thead><tr><th>Task</th><th>Assigned To</th><th>Department</th><th>Period</th><th>Frequency</th><th>Executive Scores</th><th>Average %</th><th>Status</th></tr></thead><tbody>${scoredTaskRows.map(task => {
+      const avg = getAutomatedTaskAverageScorePercent(task, task.__autoOccurrenceMonth);
+      return `<tr><td><strong>${escapeHtml(task['Task Name'] || task.taskName || task.Title || 'Automated task')}</strong></td><td>${escapeHtml(getAssigneeName(task) || '')}</td><td>${escapeHtml(getDepartment(task) || '')}</td><td>${escapeHtml(monthLabelFromKey(task.__autoOccurrenceMonth || getMonthKey(getTaskDueDate(task))))}</td><td>${escapeHtml(task.Frequency || task.frequency || '')}</td><td>${automatedTaskScoreBreakdownHtml(task)}</td><td>${avg === null ? '<span style="font-size:12px;color:#64748b;font-weight:700">Waiting</span>' : `<span class="score-pill ${scoreClass(avg)}">${avg}%</span>`}</td><td>${escapeHtml(getAutomatedTaskDisplayStatus(task))}</td></tr>`;
+    }).join('')}</tbody></table></div>` : '<div style="padding:16px 24px;color:#64748b;font-size:13px">No automated task scoring details found.</div>';
     return `<div class="performance-score-card">
-      <div class="panel-header"><h2>🏆 Performance Scoring System</h2></div>
-      <p class="score-note">Score includes normal tickets and automated recurring tasks assigned to each person. Response, priority handling, time taken to close, open-but-late and closed-but-late penalties are included in the final percentage.</p>
+      <div class="panel-header"><h2>🏆 Performance Scoring System</h2>${!canViewAllScores ? '<button class="btn-secondary" onclick="unlockScoreSummaryAccess()">View Everyone</button>' : '<button class="btn-secondary" onclick="showPerformanceReportBuilder()">Reports / PDF</button>'}</div>
+      <p class="score-note">${canViewAllScores ? 'Score includes normal tickets and automated recurring tasks assigned to each person.' : 'Showing your score only. Enter password to view summary score for everyone.'} Executive scoring updates this table directly. Each automated task shows both executive percentages and the final score is the average percentage for that period.</p>
       <div class="table-wrapper"><table><thead><tr><th>Person</th><th>Total Assigned</th><th>Tickets</th><th>Automated</th><th>Open</th><th>Closed</th><th>Open Late</th><th>Closed Late</th><th>Avg Response Days</th><th>Final Score</th></tr></thead><tbody>${scores.length ? scores.map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong></td><td>${row.total}</td><td>${row.tickets}</td><td>${row.automated}</td><td>${row.open}</td><td>${row.closed}</td><td>${row.openLate}</td><td>${row.closedLate}</td><td>${row.avgResponse}</td><td><span class="score-pill ${scoreClass(row.finalScore)}">${row.finalScore}%</span></td></tr>`).join('') : '<tr><td colspan="10" style="text-align:center">No assigned tickets or automated tasks found</td></tr>'}</tbody></table></div>
+      <div class="panel-header"><h2>📋 Executive Scoring Details</h2></div>
+      ${scoreDetailsHtml}
     </div>${monthlyPerformanceSummaryHtml(tickets, automatedTasks)}`;
   }
+
+
+  window.showPerformanceReportBuilder = function() {
+    if (!hasScoreSummaryAccess()) return unlockScoreSummaryAccess();
+    const existing = document.getElementById('performanceReportPanel');
+    if (existing) { existing.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    const html = `<div id="performanceReportPanel" class="performance-score-card"><div class="panel-header"><h2>📄 Performance Reports</h2></div><div style="padding:20px"><div class="form-row"><div class="form-field"><label>Report Type</label><select id="performanceReportType"><option value="everyone">Everyone</option><option value="individual">Individual</option><option value="department">Department</option><option value="managers">All Managers</option></select></div><div class="form-field"><label>Filter Value</label><input id="performanceReportFilter" placeholder="Name or department. Leave blank for everyone/managers."></div></div><button class="btn-primary" onclick="downloadPerformanceReportPdf()">Download PDF</button><div id="performanceReportMessage" class="message-bar"></div></div></div>`;
+    const main = document.getElementById('mainContent');
+    const firstScore = main.querySelector('.performance-score-card');
+    if (firstScore) firstScore.insertAdjacentHTML('afterend', html); else main.insertAdjacentHTML('beforeend', html);
+    document.getElementById('performanceReportPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+
+  function buildPerformanceReportTrendSvg(rows, months) {
+    if (!rows.length || !months.length) return '<p>No monthly trend data found for the selected report.</p>';
+    const width = 900, height = 320, left = 55, right = 20, top = 25, bottom = 55;
+    const plotW = width - left - right;
+    const plotH = height - top - bottom;
+    const xFor = i => left + (months.length === 1 ? plotW / 2 : (i * plotW / (months.length - 1)));
+    const yFor = value => top + plotH - (Math.max(0, Math.min(100, value)) * plotH / 100);
+    const grid = [0,25,50,75,100].map(v => `<line x1="${left}" y1="${yFor(v)}" x2="${width-right}" y2="${yFor(v)}" stroke="#e2e8f0"/><text x="10" y="${yFor(v)+4}" font-size="11" fill="#475569">${v}%</text>`).join('');
+    const monthLabels = months.map((m, i) => `<text x="${xFor(i)}" y="${height-18}" text-anchor="middle" font-size="10" fill="#475569">${escapeHtml(monthLabelFromKey(m))}</text>`).join('');
+    const colors = ['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0f766e','#db2777','#334155'];
+    const lines = rows.slice(0, 8).map((row, rowIndex) => {
+      const points = months.map((monthKey, i) => {
+        const month = row.months[monthKey];
+        if (!month || !month.possible) return null;
+        return [xFor(i), yFor(Math.round((month.earned / month.possible) * 100))];
+      }).filter(Boolean);
+      if (!points.length) return '';
+      const color = colors[rowIndex % colors.length];
+      const circles = points.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="3" fill="${color}"/>`).join('');
+      return `<polyline points="${points.map(p => p.join(',')).join(' ')}" fill="none" stroke="${color}" stroke-width="2"/>${circles}<text x="${width-right-5}" y="${points[points.length-1][1]-5}" text-anchor="end" font-size="10" fill="${color}">${escapeHtml(row.name)}</text>`;
+    }).join('');
+    return `<svg width="100%" viewBox="0 0 ${width} ${height}" role="img" aria-label="Monthly performance trend"><rect width="${width}" height="${height}" fill="white"/>${grid}<line x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}" stroke="#94a3b8"/><line x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}" stroke="#94a3b8"/>${monthLabels}${lines}</svg>`;
+  }
+
+  window.downloadPerformanceReportPdf = async function() {
+    if (!hasScoreSummaryAccess()) return unlockScoreSummaryAccess();
+    try {
+      const type = document.getElementById('performanceReportType')?.value || 'everyone';
+      const filter = String(document.getElementById('performanceReportFilter')?.value || '').trim().toLowerCase();
+      const [ticketsRaw, automatedTasksRaw] = await Promise.all([safeGet('tickets'), safeGet('automatedTasks')]);
+      const tickets = Array.isArray(ticketsRaw) ? ticketsRaw : [];
+      const automatedTasks = Array.isArray(automatedTasksRaw) ? automatedTasksRaw : [];
+      const summary = calculateMonthlyPerformanceScores(tickets, automatedTasks);
+      let rows = summary.rows;
+      if (type === 'individual' && filter) rows = rows.filter(row => String(row.name || '').toLowerCase().includes(filter));
+      if (type === 'department' && filter) rows = rows.filter(row => String(row.department || '').toLowerCase().includes(filter));
+      if (type === 'managers') rows = rows.filter(row => String(row.name || '').toLowerCase().includes('manager') || String(row.department || '').toLowerCase().includes('manager'));
+      const months = summary.months;
+      const reportTitle = `Performance Report - ${type}${filter ? ' - ' + filter : ''}`;
+      const trendSvg = buildPerformanceReportTrendSvg(rows, months);
+      const tableRows = rows.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.department || '')}</td>${months.map(monthKey => {
+        const month = row.months[monthKey];
+        if (!month || !month.possible) return '<td>Waiting</td>';
+        return `<td>${Math.round((month.earned / month.possible) * 100)}%</td>`;
+      }).join('')}<td>${row.overallScore}%</td></tr>`).join('') || `<tr><td colspan="${months.length + 3}">No report rows found</td></tr>`;
+      const win = window.open('', '_blank');
+      if (!win) return alert('Pop-up blocked. Please allow pop-ups to download the PDF report.');
+      win.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(reportTitle)}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#0f172a}h1{margin-bottom:4px}p{color:#475569}table{width:100%;border-collapse:collapse;margin-top:18px;font-size:12px}th,td{border:1px solid #cbd5e1;padding:8px;text-align:left}th{background:#f1f5f9}.score{font-weight:700}.print-note{font-size:11px;margin-top:12px}</style></head><body><h1>${escapeHtml(reportTitle)}</h1><p>Average percentage by period. Use Print / Save as PDF to download.</p><h2>Monthly % Trend</h2>${trendSvg}<table><thead><tr><th>Person</th><th>Department</th>${months.map(m => `<th>${escapeHtml(monthLabelFromKey(m))}</th>`).join('')}<th>Average %</th></tr></thead><tbody>${tableRows}</tbody></table><p class="print-note">Generated from OnpointBase Performance Scoring System.</p><script>window.onload=function(){setTimeout(function(){window.print();},300)};<\/script></body></html>`);
+      win.document.close();
+    } catch(e) {
+      alert(`Could not create report: ${e.message}`);
+    }
+  };
 
   async function renderUsers() { const route = SHEET_ROUTES.users; const data = await safeGet(route.action); renderDataEntryTable(route.displayTab, data, route.columns, route.saveAction, route.sheetTab); }
 
@@ -3087,11 +3511,13 @@ Please log in to QuickBase to review and update this item.`
     const automatedTasks = Array.isArray(automatedTasksRaw) ? automatedTasksRaw : [];
     const automatedTaskRows = expandAutomatedTaskMonthlyOccurrences(automatedTasks.filter(hasPerformanceAssignee), true);
     const allTicketRows = [...allTickets, ...automatedTaskRows];
-    const stats = calculateTicketStats(allTicketRows);
-    const priorityCounts = groupCount(allTicketRows, t => getPriority(t));
-    const departmentCounts = groupCount(allTicketRows, t => getDepartment(t));
+    const canViewAllTasks = hasOtherTasksAccess();
+    const visibleTicketRows = canViewAllTasks ? allTicketRows : filterRowsToCurrentUser(allTicketRows);
+    const stats = calculateTicketStats(visibleTicketRows);
+    const priorityCounts = groupCount(visibleTicketRows, t => getPriority(t));
+    const departmentCounts = groupCount(visibleTicketRows, t => getDepartment(t));
 
-    let data = allTicketRows;
+    let data = visibleTicketRows;
     if (window.taskFilter === 'open') data = stats.open;
     else if (window.taskFilter === 'closed') data = stats.closed;
     else if (window.taskFilter === 'overdue') data = stats.openLate;
@@ -3103,10 +3529,12 @@ Please log in to QuickBase to review and update this item.`
     window.currentTicketRows = data;
     const main = document.getElementById('mainContent');
     const activeFilterText = window.taskFilter ? `Filtered: ${window.taskFilter.replace(/-/g, ' ')}` : 'All tickets';
+    const ticketTablePanel = `<div class="panel"><div class="panel-header"><h2>📋 Tickets</h2></div><div class="table-wrapper"><table><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}<th>Action</th></tr></thead><tbody>${data.length ? data.map((row, index) => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}<td>${ticketActionHtml(row, index)}</td></tr>`).join('') : `<tr><td colspan="${columns.length + 1}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
 
     main.innerHTML = `
       <div class="top-bar"><div class="page-title"><h1>Tickets</h1><p>Sheet tab: Tasks · ${escapeHtml(activeFilterText)}</p></div><button class="refresh-btn" onclick="loadCurrentSection()">↻ Refresh</button></div>
-      ${ticketSummaryWindowHtml(automatedTaskRows, stats)}
+      ${window.taskFilter ? ticketTablePanel : ''}
+      ${ticketSummaryWindowHtml(visibleTicketRows, stats)}
       <div class="task-status-grid">
         <div class="status-stat-card" onclick="window.taskFilter='open';renderTickets()" style="border-top:4px solid #3b82f6"><h3 style="color:#3b82f6">${stats.open.length}</h3><p>📋 Tickets Open</p></div>
         <div class="status-stat-card" onclick="window.taskFilter='closed';renderTickets()" style="border-top:4px solid #22c55e"><h3 style="color:#22c55e">${stats.closed.length}</h3><p>✅ Tickets Closed</p></div>
@@ -3115,7 +3543,7 @@ Please log in to QuickBase to review and update this item.`
       </div>
       <div class="task-status-grid">
         <div class="status-stat-card" onclick="window.taskFilter='closed-late';renderTickets()" style="border-top:4px solid #f59e0b"><h3 style="color:#f59e0b">${stats.closedLate.length}</h3><p>🟠 Closed But Late</p></div>
-        <div class="status-stat-card" onclick="window.taskFilter=null;renderTickets()" style="border-top:4px solid #8b5cf6"><h3 style="color:#8b5cf6">${allTicketRows.length}</h3><p>🎫 Total Tickets</p></div>
+        <div class="status-stat-card" onclick="window.taskFilter=null;renderTickets()" style="border-top:4px solid #8b5cf6"><h3 style="color:#8b5cf6">${visibleTicketRows.length}</h3><p>🎫 Total Tickets</p></div>
         <div class="status-stat-card" onclick="currentSection='tickets';window.taskFilter=null;loadCurrentSection()" style="border-top:4px solid #0ea5e9"><h3 style="color:#0ea5e9">${Object.keys(priorityCounts).length}</h3><p>🏷️ Tickets by Priority</p></div>
         <div class="status-stat-card" style="border-top:4px solid #6366f1"><h3 style="color:#6366f1">${Object.keys(departmentCounts).length}</h3><p>🏢 Tickets by Department</p></div>
       </div>
@@ -3123,7 +3551,7 @@ Please log in to QuickBase to review and update this item.`
         <div class="chart-card"><h3>Tickets by Priority</h3><p>Current ticket count grouped by priority</p><canvas id="ticketsPriorityChart"></canvas></div>
         <div class="chart-card"><h3>Tickets by Department</h3><p>Current ticket count grouped by department</p><canvas id="ticketsDepartmentChart"></canvas></div>
       </div>
-      <div class="panel"><div class="panel-header"><h2>📋 Tickets</h2></div><div class="table-wrapper"><table><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}<th>Action</th></tr></thead><tbody>${data.length ? data.map((row, index) => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}<td>${ticketActionHtml(row, index)}</td></tr>`).join('') : `<tr><td colspan="${columns.length + 1}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>
+      ${!window.taskFilter ? ticketTablePanel : ''}
       <div class="panel"><div class="panel-header"><h2>🔄 Automated Tasks</h2></div><div class="table-wrapper"><table><thead><tr>${automatedTaskColumns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${automatedTaskRows.length ? automatedTaskRows.map(row => `<tr>${automatedTaskColumns.map(c => `<td>${escapeHtml(getCellValue(row, c))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${automatedTaskColumns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
 
     if (typeof Chart !== 'undefined') {
@@ -3199,7 +3627,12 @@ Please log in to QuickBase to review and update this item.`
         approvedBy: decidedBy,
         decision: normalizedDecision,
         approvalLevel: 'both',
-        status: normalizedDecision,
+        status: normalizedDecision === 'Approved' ? 'Sent to HR' : 'Rejected',
+        Status: normalizedDecision === 'Approved' ? 'Sent to HR' : 'Rejected',
+        hrTaskStatus: normalizedDecision === 'Approved' ? 'HR Notified' : 'Rejected',
+        'HR Task Status': normalizedDecision === 'Approved' ? 'HR Notified' : 'Rejected',
+        'Approval 1': normalizedDecision,
+        'Approval 2': normalizedDecision,
         sheetTab: 'Hiring Requests',
         notifyRequester: 'Yes',
         requesterEmail: requestRow['Requested By Email'] || '',
@@ -3395,6 +3828,7 @@ Please log in to QuickBase to review and update this item.`
     else if (currentSection === 'myTickets') await renderMyTickets();
     else if (currentSection === 'sentTickets') await renderSentTickets();
     else if (currentSection === 'approvals') await renderApprovals();
+    else if (currentSection === 'scoringBasket') await renderScoringBasket();
     else if (currentSection === 'hiringRequests') await renderHiringRequests();
     else if (currentSection === 'kpis') await renderKPIs();
     else if (currentSection === 'sla') await renderSLA();
@@ -3408,6 +3842,7 @@ Please log in to QuickBase to review and update this item.`
       if (link.getAttribute('data-section') === currentSection) link.classList.add('active');
     });
     if (currentSection !== 'tickets') window.taskFilter = null;
+    updateScoringBasketBadge();
   }
 
   document.querySelectorAll('.nav-link').forEach(link => {
