@@ -900,7 +900,7 @@
 
 <script>
   // ==================== CONFIGURATION ====================
-  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw028QB1dRydq-Zj_vGe7fOZmJapSWLDCl4bQI53ToITUHhVE7MLRHKJV_8avoBB17f/exec';
+  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwVpDQuNqHTa9HAsfTYKUkTcgmGdbqR8GazUjSPvwACSWEd-pOV9BS6tv70yHaDYMnn/exec';
   const SHEET_ID = '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
   const TASK_PROOF_DRIVE_FOLDER_ID = '19GoN9yzz0ODP_F-4ffba_olb3cD0b0f4';
 
@@ -922,6 +922,7 @@
   };
 
   function getRouteByAction(action) {
+    if (action === 'updateAutomatedTaskReview') return SHEET_ROUTES.scoreApprovals;
     return Object.values(SHEET_ROUTES).find(route => route.action === action || route.saveAction === action) || null;
   }
 
@@ -967,8 +968,8 @@
   };
 
   const EXECUTIVE_MANAGERS = [
-    { name: 'Lameck Chindove', email: SYSTEM_USER_EMAILS['Lameck Chindove'] },
-    { name: 'Tafadzwa Magejo', email: SYSTEM_USER_EMAILS['Tafadzwa Magejo'] }
+    { name: 'Tafadzwa Magejo', email: SYSTEM_USER_EMAILS['Tafadzwa Magejo'] },
+    { name: 'Lameck Chindove', email: SYSTEM_USER_EMAILS['Lameck Chindove'] }
   ];
   const HR_MANAGER = { name: 'HR Manager', email: SYSTEM_USER_EMAILS['HR Manager'] };
 
@@ -1026,6 +1027,67 @@
     if (normalized === 'Not Done') return 0;
     const numeric = parseFloat(String(value || '').replace('%', ''));
     return Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : null;
+  }
+
+
+  function scoreApprovalTicketId(row) {
+    return String(row?.['Task ID'] || row?.['Ticket ID'] || row?.['Ticket Number'] || row?.taskId || row?.ticketId || row?.ticketNumber || '').trim();
+  }
+
+  function scoreApprovalMonth(row) {
+    return String(row?.Month || row?.month || row?.sourceOccurrenceMonth || row?.['Source Occurrence Month'] || '').trim();
+  }
+
+  function scoreApprovalNumber(value) {
+    const n = Number(String(value === undefined || value === null ? '' : value).replace('%', '').trim());
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+  }
+
+  function scoreApprovalValue(row) {
+    return scoreApprovalNumber(row?.['Average Score Percent']) ?? scoreApprovalNumber(row?.['Final Score Percent']) ?? scoreApprovalNumber(row?.['Score Percent']);
+  }
+
+  function scoreApprovalReviewKeyFromParts(ticketId, month = '') {
+    return `${String(ticketId || '').trim()}__${String(month || '').trim()}`;
+  }
+
+  function mergeScoreApprovalsIntoStoredReviews(scoreRows) {
+    const rows = Array.isArray(scoreRows) ? scoreRows : [];
+    window.currentScoreApprovalRows = rows;
+    const reviews = getStoredAutomatedTaskReviews();
+    rows.forEach(row => {
+      const ticketId = scoreApprovalTicketId(row);
+      if (!ticketId) return;
+      const month = scoreApprovalMonth(row);
+      const key = scoreApprovalReviewKeyFromParts(ticketId, month);
+      reviews[key] = reviews[key] || {};
+      reviews[key].byExecutive = reviews[key].byExecutive || {};
+      EXECUTIVE_MANAGERS.forEach((manager, index) => {
+        const level = index + 1;
+        const score = scoreApprovalNumber(row[`Executive ${level} Score Percent`] || row[`Executive ${level} Score`] || row[`Executive ${level} Review`]);
+        if (score === null) return;
+        const executiveKey = String((row[`Executive ${level} Email`] || manager.email || manager.name || '')).trim().toLowerCase();
+        reviews[key].byExecutive[executiveKey] = {
+          decision: String(score),
+          reviewedBy: row[`Executive ${level} Name`] || manager.name,
+          reviewedByEmail: row[`Executive ${level} Email`] || manager.email,
+          reviewedDate: row[`Executive ${level} Date`] || row.Timestamp || '',
+          executiveComment: row[`Executive ${level} Comment`] || row['Score Comment'] || ''
+        };
+      });
+    });
+    saveStoredAutomatedTaskReviews(reviews);
+  }
+
+  async function syncScoreApprovalsFromSheet() {
+    try {
+      const rows = await safeGet('scoreApprovals');
+      mergeScoreApprovalsIntoStoredReviews(rows);
+      return rows;
+    } catch(e) {
+      console.warn('Score approvals sync failed:', e.message || e);
+      return window.currentScoreApprovalRows || [];
+    }
   }
 
   function getAutomatedTaskExecutiveReviewDetails(task, monthOverride = '') {
@@ -1136,8 +1198,22 @@
     try {
       await apiPost('updateAutomatedTaskReview', {
         taskId: getAutomatedTaskIdentity(task),
+        ticketId: getAutomatedTaskIdentity(task),
+        ticketNumber: getAutomatedTaskIdentity(task),
+        'Task ID': getAutomatedTaskIdentity(task),
+        'Ticket ID': getAutomatedTaskIdentity(task),
         taskName: task['Task Name'] || task.taskName || task.Title || '',
+        'Task Name': task['Task Name'] || task.taskName || task.Title || '',
+        assignedTo: getAssigneeName(task),
+        'Assigned To': getAssigneeName(task),
+        assignedEmail: getAssigneeEmail(task),
+        'Assigned Email': getAssigneeEmail(task),
+        department: getDepartment(task),
+        Department: getDepartment(task),
+        dueDate: getTaskDueDate(task),
+        'Due Date': getTaskDueDate(task),
         month,
+        executiveScoreLevel: reviewedByEmail === 'tafadzwa.magejo@onpointontime.co.za' ? 1 : (reviewedByEmail === 'lameck.chindove@onpointontime.co.za' ? 2 : ''),
         executiveOnTimeReview: decision,
         executiveScorePercent: automatedTaskDecisionPercent(decision),
         executiveAverageScorePercent: averageScorePercent === null ? '' : averageScorePercent,
@@ -1165,6 +1241,7 @@
 
   async function getDueExecutiveScoringTasks() {
     if (!isExecutive()) return [];
+    await syncScoreApprovalsFromSheet();
     const automatedTasks = await safeGet('automatedTasks');
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -2363,7 +2440,7 @@ Please log in to QuickBase to continue.`;
     const currentEmail = String(currentUser?.Email || '').trim().toLowerCase();
     const issuedIds = new Set((taskRows || []).filter(t => isSamePerson(currentName, getTaskIssuerName(t)) || (currentEmail && currentEmail === getTaskIssuerEmail(t))).map(getTicketIdentity).filter(Boolean));
     const relevant = issuedIds.size ? rows.filter(r => issuedIds.has(String(r['Ticket ID'] || r.ticketId || r['Ticket Number'] || '').trim())) : rows;
-    const percentages = relevant.map(r => Number(String(r['Score Percent'] || r.scorePercent || r['Executive Assignee Rating'] || '').replace('%',''))).filter(n => Number.isFinite(n));
+    const percentages = relevant.map(r => scoreApprovalValue(r)).filter(n => Number.isFinite(n));
     const average = percentages.length ? Math.round(percentages.reduce((a,b) => a+b, 0) / percentages.length) : 0;
     return `<div class="performance-score-card"><div class="panel-header"><h2>📈 Performance Scoring Average</h2></div><p class="score-note">Average % score from Google Sheet tab <strong>Score_approvals</strong> for scored tasks issued from this dashboard section.</p><div style="padding:0 24px 20px 24px"><span class="score-pill ${scoreClass(average)}">${percentages.length ? average + '%' : 'No scores'}</span><span style="font-size:12px;color:#64748b;margin-left:10px">${percentages.length} scored task${percentages.length === 1 ? '' : 's'} / ${issuedIds.size || (taskRows || []).length} issued task${(issuedIds.size || (taskRows || []).length) === 1 ? '' : 's'}</span></div></div>`;
   }
@@ -3187,6 +3264,18 @@ Please log in to QuickBase to review and update this item.`
     return canonicalPersonName(getAssigneeName(item) || item['Assigned To'] || item.assignedTo || '');
   }
 
+  function getScoreApprovalForTask(item) {
+    const taskId = String(getTicketIdentity(item) || getAutomatedTaskIdentity(item) || '').trim();
+    if (!taskId) return null;
+    const month = item?.__autoOccurrenceMonth || getMonthKey(getTaskDueDate(item) || getCompletionDate(item));
+    const rows = Array.isArray(window.currentScoreApprovalRows) ? window.currentScoreApprovalRows : [];
+    const matches = rows.filter(row => scoreApprovalTicketId(row) === taskId && (!scoreApprovalMonth(row) || !month || scoreApprovalMonth(row) === month));
+    if (!matches.length) return null;
+    const latest = matches[matches.length - 1];
+    const score = scoreApprovalValue(latest);
+    return score === null ? null : { row: latest, score };
+  }
+
   function scorePerformanceItem(item, type) {
     const isAuto = type === 'Automated';
     const priority = isAuto ? 'Medium' : getPerformancePriority(item);
@@ -3227,6 +3316,19 @@ Please log in to QuickBase to review and update this item.`
         isClosed: true,
         isOpenLate: false,
         isClosedLate: averageScorePercent < 100,
+        responseDays,
+        type
+      };
+    }
+
+    const approvalScore = getScoreApprovalForTask(item);
+    if (approvalScore && isClosed) {
+      return {
+        earned: approvalScore.score * weight,
+        possible,
+        isClosed,
+        isOpenLate,
+        isClosedLate,
         responseDays,
         type
       };
