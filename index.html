@@ -900,1177 +900,7 @@
 
 <script>
   // ==================== CONFIGURATION ====================
-  const DEFAULT_SCRIPT_URL = 'const SPREADSHEET_ID = '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
-const USERS_TAB = 'Users';
-const EXECUTIVE_ROLE = 'Executive';
-
-const ACTION_TABS = {
-  users: 'Users',
-  addUser: 'Users',
-  departments: 'Department',
-  addDepartment: 'Department',
-  employees: 'Employees',
-  addEmployee: 'Employees',
-  tickets: 'Tasks',
-  addTicket: 'Tasks',
-  sentTickets: 'Sent_Tickets',
-  addSentTicket: 'Sent_Tickets',
-  kpis: 'KPIs',
-  addKpi: 'KPIs',
-  sla: 'SLA',
-  addSla: 'SLA',
-  bscMetrics: 'BSC',
-  addBscMetrics: 'BSC',
-  divisions: 'divisions',
-  addDivision: 'divisions',
-  automatedTasks: 'Automated Tasks',
-  addAutomatedTask: 'Automated Tasks',
-  updateMoreTimeApproval: 'Tasks',
-  updateHiringApproval: 'Hiring Requests',
-  scoreApprovals: 'Score_approvals',
-  addScoreApproval: 'Score_approvals',
-  updateAutomatedTaskReview: 'Score_approvals',
-  closedTickets: 'Closed Tickets',
-  addClosedTicket: 'Closed Tickets'
-};
-
-const QUICKBASE_TASKS_BASE_HEADERS = [
-  'Task ID', 'Date Created', 'Task Name', 'Description', 'Priority', 'Status',
-  'Assigned To', 'Assigned Email', 'whatsapp No.', 'WhatsApp No.', 'Department', 'CostCenter', 'Cost Center', 'Due Date', 'Completion Date', 'Comments',
-  'Attachment Link', 'Title', 'Created Date', 'Created Date', 'title',
-  'taskName', 'priority', 'status', 'department', 'assignedTo',
-  'assignedEmail', 'dueDate', 'description', 'comments', 'attachmentLink',
-  'sheetTab', 'notifyAssignee', 'emailService', 'emailTo', 'emailSubject',
-  'notifyDashboard', 'Dashboard Notification'
-];
-
-const QUICKBASE_TASKS_UPDATE_HEADERS = [
-  'Task ID', 'Ticket ID', 'Ticket Number', 'Task Response', 'Proof Link', 'Update Timestamp', 'Update Status',
-  'Update Comment', 'Update Proof Link', 'Update Proof File Names',
-  'Update Submitted By', 'Update Submitted By Email',
-  'More Time Executive Approval', 'More Time Issuer Approval', 'More Time Last Approved By', 'More Time Last Approved Date', 'More Time Approval Status'
-];
-
-function quickbaseNormalizeHeader_(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function ensureQuickBaseTasksHeaders_(sheet) {
-  const required = QUICKBASE_TASKS_BASE_HEADERS.concat(QUICKBASE_TASKS_UPDATE_HEADERS);
-  let lastCol = Math.max(sheet.getLastColumn(), 1);
-  let existing = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
-  if (!existing.length || existing.join('').trim() === '') {
-    sheet.getRange(1, 1, 1, required.length).setValues([required]);
-    return required.slice();
-  }
-
-  required.forEach(function(header) {
-    const exists = existing.some(function(current) {
-      return quickbaseNormalizeHeader_(current) === quickbaseNormalizeHeader_(header);
-    });
-    if (!exists) {
-      existing.push(header);
-      sheet.getRange(1, existing.length).setValue(header);
-    }
-  });
-  return existing;
-}
-
-function normalizeQuickBaseTaskPayload_(payload) {
-  const out = Object.assign({}, payload || {});
-  const ticketNumber = String(out['Ticket Number'] || out['Ticket ID'] || out.ticketNumber || out.ticketId || out['Task ID'] || out.taskId || '').trim();
-  if (ticketNumber) {
-    out['Task ID'] = out['Task ID'] || ticketNumber;
-    out['Ticket ID'] = out['Ticket ID'] || ticketNumber;
-    out['Ticket Number'] = out['Ticket Number'] || ticketNumber;
-    out.ticketId = out.ticketId || ticketNumber;
-    out.ticketNumber = out.ticketNumber || ticketNumber;
-  }
-  out['Task Name'] = out['Task Name'] || out.taskName || out.title || out.Title || '';
-  out.Description = out.Description || out.description || out['Task Description'] || '';
-  out.Priority = out.Priority || out.priority || '';
-  out.Status = out.Status || out.status || '';
-  out['Assigned To'] = out['Assigned To'] || out.assignedTo || '';
-  out['Assigned Email'] = out['Assigned Email'] || out.assignedEmail || out.emailTo || '';
-  out['whatsapp No.'] = out['whatsapp No.'] || out['Whatsapp No.'] || out['WhatsApp No.'] || out.whatsappNo || out.whatsappNumber || '';
-  out['WhatsApp No.'] = out['WhatsApp No.'] || out['whatsapp No.'];
-  out['Whatsapp No.'] = out['Whatsapp No.'] || out['whatsapp No.'];
-  out.Department = out.Department || out.department || '';
-  out.CostCenter = out.CostCenter || out['CostCenter'] || out['Cost Center'] || out['Cost Centre'] || out.CostCentre || out.costCenter || out.costCentre || '';
-  out['Cost Center'] = out['Cost Center'] || out.CostCenter;
-  out['Due Date'] = out['Due Date'] || out.dueDate || '';
-  out.Comments = out.Comments || out.comments || '';
-  out['Attachment Link'] = out['Attachment Link'] || out.attachmentLink || '';
-  out.Title = out.Title || out.title || out['Task Name'] || '';
-  out['Date Created'] = out['Date Created'] || out['Created Date'] || out.createdDate || new Date();
-  out['Created Date'] = out['Created Date'] || out['Date Created'];
-  return out;
-}
-
-function quickbaseOriginalDoGet_(e) {
-  try {
-    e = e || { parameter: {} };
-    const action = String(e.parameter.action || '').trim();
-    const sheetId = e.parameter.sheetId || SPREADSHEET_ID;
-    const tab = e.parameter.sheetTab || ACTION_TABS[action] || USERS_TAB;
-    if (!action) return jsonOut({ success: false, message: 'Missing action.' });
-
-    if (action === 'login') {
-      return jsonOut(loginUser(sheetId, e.parameter.email, e.parameter.password));
-    }
-
-    return jsonOut(getRows(sheetId, tab, action === 'users'));
-  } catch (err) {
-    return jsonOut({ success: false, message: err.message });
-  }
-}
-
-function quickbaseOriginalDoPost_(e) {
-  try {
-    const request = parseRequest(e);
-    const action = request.action;
-    const sheetId = request.sheetId || SPREADSHEET_ID;
-    const payload = request.payload || request;
-
-    if (action === 'login') return jsonOut(loginUser(sheetId, payload.email, payload.password));
-    if (action === 'sendTaskEmail') return jsonOut(sendTaskEmail(request));
-
-    const tab = request.sheetTab || request.sheetName || request.tabName || ACTION_TABS[action];
-    if (!tab) return jsonOut({ success: false, message: 'Unknown action or sheet tab.' });
-
-    const user = request.user || {};
-    const finalPayload = applyApprovalRules(payload, user);
-    const result = appendOrUpdateRow(sheetId, tab, finalPayload);
-    return jsonOut(Object.assign({ success: true, approval: finalPayload.approvalStatus || '' }, result));
-  } catch (err) {
-    return jsonOut({ success: false, message: err.message });
-  }
-}
-
-function parseRequest(e) {
-  const raw = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
-  if (e && e.postData && e.postData.type && e.postData.type.indexOf('application/x-www-form-urlencoded') > -1) {
-    return JSON.parse((e.parameter && e.parameter.data) || raw || '{}');
-  }
-  return JSON.parse(raw || '{}');
-}
-
-function ss(sheetId) {
-  return SpreadsheetApp.openById(sheetId || SPREADSHEET_ID);
-}
-
-function getSheet(sheetId, tab) {
-  const sh = ss(sheetId).getSheetByName(tab);
-  if (!sh) throw new Error('Sheet tab not found: ' + tab);
-  return sh;
-}
-
-function getHeaders(sh) {
-  const lastCol = Math.max(sh.getLastColumn(), 1);
-  return sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
-}
-
-function getRows(sheetId, tab, hidePasswords) {
-  const sh = getSheet(sheetId, tab);
-  const values = sh.getDataRange().getValues();
-  if (values.length < 2) return [];
-  const headers = values[0].map(String);
-  return values.slice(1).filter(function(row) { return row.join('').trim() !== ''; }).map(function(row) {
-    const obj = {};
-    headers.forEach(function(h, i) {
-      let key = h || ('Column ' + (i + 1));
-      if (obj.hasOwnProperty(key)) key = key + '_' + (i + 1);
-      obj[key] = row[i] instanceof Date ? Utilities.formatDate(row[i], Session.getScriptTimeZone(), 'yyyy-MM-dd') : row[i];
-    });
-    if (hidePasswords) delete obj.Password;
-    return obj;
-  });
-}
-
-function appendOrUpdateRow(sheetId, tab, payload) {
-  const sh = getSheet(sheetId, tab);
-  if (String(tab || '').toLowerCase() === 'tasks') {
-    payload = normalizeQuickBaseTaskPayload_(payload);
-    ensureQuickBaseTasksHeaders_(sh);
-  }
-  const headers = getHeaders(sh);
-  if (!headers.length || !headers[0]) throw new Error('Header row is required on tab: ' + tab);
-
-  const row = headers.map(function(h) {
-    if (payload[h] !== undefined) return payload[h];
-    const compact = h.replace(/\s+/g, '').toLowerCase();
-    const key = Object.keys(payload).find(function(k) { return k.replace(/\s+/g, '').toLowerCase() === compact; });
-    return key ? payload[key] : '';
-  });
-
-  const timestampCol = headers.findIndex(function(h) { return /created date|join date|date/i.test(h); });
-  if (timestampCol > -1 && !row[timestampCol]) row[timestampCol] = new Date();
-
-  sh.appendRow(row);
-  var rowNumber = sh.getLastRow();
-
-  if (String(tab || '').toLowerCase() === 'tasks' || String(tab || '').toLowerCase() === 'automated tasks') {
-    try {
-      appendQuickBaseTaskUpdate_(ss(sheetId), {
-        'Timestamp': new Date(),
-        'Task ID': payload['Task ID'] || payload.taskId || payload['Ticket ID'] || payload.ticketId || payload['Ticket Number'] || payload.ticketNumber || '',
-        'Ticket ID': payload['Ticket ID'] || payload.ticketId || payload['Task ID'] || payload.taskId || payload['Ticket Number'] || payload.ticketNumber || '',
-        'Ticket Number': payload['Ticket Number'] || payload.ticketNumber || payload['Ticket ID'] || payload.ticketId || payload['Task ID'] || payload.taskId || '',
-        'Title': payload.Title || payload.title || payload['Task Name'] || payload.taskName || '',
-        'Task Description': payload.Description || payload.description || payload['Task Description'] || '',
-        'Task Status': payload.Status || payload.status || 'Open',
-        'Assignee': payload['Assigned To'] || payload.assignedTo || '',
-        'Assignee Email': payload['Assigned Email'] || payload.assignedEmail || payload.emailTo || '',
-        CostCenter: payload.CostCenter || payload['CostCenter'] || payload['Cost Center'] || payload.costCenter || '',
-        'Cost Center': payload['Cost Center'] || payload.CostCenter || payload['CostCenter'] || payload.costCenter || '',
-        'whatsapp No.': payload['whatsapp No.'] || payload['Whatsapp No.'] || payload['WhatsApp No.'] || payload.whatsappNo || payload.whatsappNumber || '',
-        'Submitted By': payload.createdBy || payload['Created By'] || '',
-        'Submitted By Email': payload.createdByEmail || payload['Created By Email'] || '',
-        'Task Response': '',
-        'Request Type': 'Task Created',
-        'Proof Link': '',
-        'Proof File Names': '',
-        'Originator': payload.createdBy || payload['Created By'] || '',
-        'Originator Email': payload.createdByEmail || payload['Created By Email'] || ''
-      });
-    } catch(taskUpdateErr) {
-      Logger.log('Task Updates creation log failed: ' + taskUpdateErr);
-    }
-  }
-
-  return { rowNumber: rowNumber, sheetTab: tab };
-}
-
-function normalizeKey_(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function getValue_(obj, names) {
-  const wanted = names.map(normalizeKey_);
-  const keys = Object.keys(obj || {});
-  for (let i = 0; i < keys.length; i++) {
-    if (wanted.indexOf(normalizeKey_(keys[i])) > -1) return obj[keys[i]];
-  }
-  return '';
-}
-
-function loginUser(sheetId, email, password) {
-  if (!email || !password) return { success: false, message: 'Email and password are required.' };
-
-  const users = getRows(sheetId, USERS_TAB, false);
-  const wantedEmail = String(email).trim().toLowerCase();
-  const wantedPassword = String(password).trim();
-
-  const found = users.find(function(u) {
-    const rowEmail = String(getValue_(u, ['Email', 'Email Address', 'User Email'])).trim().toLowerCase();
-    const rowPassword = String(getValue_(u, ['Password', 'Pass Word', 'User Password'])).trim();
-    return rowEmail === wantedEmail && rowPassword === wantedPassword;
-  });
-
-  if (!found) return { success: false, message: 'Invalid email or password, or the Users tab could not be read.' };
-
-  const status = String(getValue_(found, ['Status', 'User Status']) || 'Active').trim().toLowerCase();
-  if (status && status !== 'active') return { success: false, message: 'User is not active.' };
-
-  const user = {
-    'User ID': getValue_(found, ['User ID', 'UserID', 'ID']),
-    'Full Name': getValue_(found, ['Full Name', 'FullName', 'Name', 'Employee Name']),
-    Email: getValue_(found, ['Email', 'Email Address', 'User Email']),
-    Department: getValue_(found, ['Department']),
-    Role: getValue_(found, ['Role']),
-    Status: getValue_(found, ['Status']) || 'Active',
-    'Join Date': getValue_(found, ['Join Date', 'JoinDate']),
-    'User Rights': getValue_(found, ['User Rights', 'UserRights', 'Rights']),
-    'Whatsapp No.': getValue_(found, ['Whatsapp No.', 'whatsapp No.', 'WhatsApp No.', 'Whatsapp No', 'WhatsApp No']),
-    CostCenter: getValue_(found, ['CostCenter', 'Cost Center', 'Cost Centre', 'CostCentre']),
-    'Cost Center': getValue_(found, ['CostCenter', 'Cost Center', 'Cost Centre', 'CostCentre'])
-  };
-
-  return { success: true, user: user };
-}
-
-function applyApprovalRules(payload, user) {
-  const clone = Object.assign({}, payload);
-  const text = [clone.Title, clone.title, clone['Task Name'], clone.taskName, clone.Description, clone.description, clone.Comments, clone.comments].join(' ').toLowerCase();
-  const needsHiringApproval = /hiring|recruit|vacancy|new employee/.test(text);
-  const needsMoreTimeApproval = /more time|extension|extend due|task extension/.test(text);
-  const isExecutive = String(user.Role || '').trim().toLowerCase() === EXECUTIVE_ROLE.toLowerCase();
-
-  if ((needsHiringApproval || needsMoreTimeApproval) && !isExecutive) {
-    clone['Requires Executive Approval'] = 'Yes';
-    clone['Approval Type'] = needsHiringApproval ? 'Hiring Request' : 'Task Time Extension';
-    clone['Approval Status'] = 'Pending Executive Approval';
-    clone.Status = clone.Status || clone.status || 'Pending Approval';
-  }
-
-  if ((needsHiringApproval || needsMoreTimeApproval) && isExecutive) {
-    clone['Requires Executive Approval'] = 'No';
-    clone['Approval Type'] = needsHiringApproval ? 'Hiring Request' : 'Task Time Extension';
-    clone['Approval Status'] = 'Approved by Executive';
-    clone['Approved By'] = user['Full Name'] || user.Email || '';
-    clone['Approved Date'] = new Date();
-  }
-
-  return clone;
-}
-
-function sendTaskEmail(request) {
-  if (!request.emailTo) return { success: false, message: 'Missing emailTo.' };
-  GmailApp.sendEmail(request.emailTo, request.emailSubject || 'QuickBase task assigned', request.emailBody || 'A task has been assigned to you in QuickBase.');
-  return { success: true };
-}
-
-function jsonOut(value) {
-  return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON);
-}
-
-function sendWorkflowNotification(email, subject, body) {
-  try {
-    MailApp.sendEmail(email, subject, body);
-    return true;
-  } catch(err) {
-    Logger.log(err);
-    return false;
-  }
-}
-
-function quickbaseNormalizeKey_(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function quickbaseGetSheet_(sheetId, tabName) {
-  var ss = SpreadsheetApp.openById(sheetId || '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8');
-  var sh = ss.getSheetByName(tabName);
-  if (!sh) sh = ss.insertSheet(tabName);
-  return sh;
-}
-
-function quickbaseReadRows_(sheetId, tabName) {
-  var sh = quickbaseGetSheet_(sheetId, tabName);
-  var values = sh.getDataRange().getValues();
-  if (!values.length) return [];
-  var headers = values[0].map(String);
-  return values.slice(1).filter(function(r){ return r.join('') !== ''; }).map(function(row){
-    var obj = {};
-    headers.forEach(function(h, i){ obj[h] = row[i]; });
-    return obj;
-  });
-}
-
-function quickbaseEnsureHeaders_(sheet, headers) {
-  var existing = sheet.getLastColumn() ? sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].map(String) : [];
-  if (!existing.length || existing.join('') === '') {
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    return headers;
-  }
-  headers.forEach(function(h) {
-    if (existing.indexOf(h) === -1) {
-      existing.push(h);
-      sheet.getRange(1, existing.length).setValue(h);
-    }
-  });
-  return existing;
-}
-
-function quickbaseAppendRow_(sheetId, tabName, payload, headers) {
-  var sh = quickbaseGetSheet_(sheetId, tabName);
-  var finalHeaders = quickbaseEnsureHeaders_(sh, headers);
-  var row = finalHeaders.map(function(h){ return payload[h] !== undefined ? payload[h] : ''; });
-  sh.appendRow(row);
-  return payload;
-}
-
-function quickbaseGetExecutives_() {
-  var rows = quickbaseReadRows_('1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8', 'Users');
-  return rows.filter(function(u){
-    return String(u.Roles || u.Role || '').trim().toLowerCase() === 'executive' && String(u.Status || 'Active').toLowerCase() !== 'inactive';
-  });
-}
-
-function quickbaseEmailExecutives_(subject, body) {
-  quickbaseGetExecutives_().forEach(function(u) {
-    if (u.Email) MailApp.sendEmail(String(u.Email), subject, body);
-  });
-}
-
-function quickbaseHandleHiringRequest_(payload, sheetId) {
-  var headers = ['Ticket Number','Request Date','Requested By','Requested By Email','Department','Position','Reason','Priority','Status','Approval 1','Approval 1 By','Approval 1 Date','Approval 2','Approval 2 By','Approval 2 Date','HR Task Status'];
-  payload['Ticket Number'] = payload['Ticket Number'] || ('HR-' + new Date().getTime());
-  payload['Request Date'] = payload['Request Date'] || new Date();
-  payload.Status = payload.Status || 'Waiting Executive Approval';
-  payload['Approval 1'] = payload['Approval 1'] || 'Pending';
-  payload['Approval 2'] = payload['Approval 2'] || 'Pending';
-  payload['HR Task Status'] = payload['HR Task Status'] || 'Waiting for both approvals';
-
-  quickbaseAppendRow_(sheetId, 'Hiring Requests', payload, headers);
-
-  quickbaseNotify_('tafadzwa.magejo@onpointontime.co.za',
-    'Hiring approval waiting: ' + payload['Ticket Number'],
-    'A hiring request is waiting for first executive approval.\n\nTicket: ' + payload['Ticket Number'] + '\nPosition: ' + payload.Position + '\nDepartment: ' + payload.Department + '\nRequested by: ' + payload['Requested By']
-  );
-
-  return {success:true, message:'Hiring request submitted and Executives notified.', data:payload};
-}
-
-function quickbaseApproveHiringRequest_(payload, sheetId) {
-  var ticketNumber = String(payload.ticketNumber || payload['Ticket Number'] || '').trim();
-  var approverName = String(payload.approverName || '').trim();
-  var approverEmail = String(payload.approverEmail || '').trim();
-  if (!ticketNumber) return {success:false, message:'Missing ticket number.'};
-
-  var sh = quickbaseGetSheet_(sheetId, 'Hiring Requests');
-  var values = sh.getDataRange().getValues();
-  if (values.length < 2) return {success:false, message:'No hiring requests found.'};
-
-  var headers = values[0].map(String);
-  function col(name) { return headers.indexOf(name) + 1; }
-  var ticketCol = col('Ticket Number');
-  var rowIndex = -1;
-
-  for (var r = 1; r < values.length; r++) {
-    if (String(values[r][ticketCol - 1]).trim() === ticketNumber) {
-      rowIndex = r + 1;
-      break;
-    }
-  }
-  if (rowIndex === -1) return {success:false, message:'Hiring request not found.'};
-
-  var row = sh.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
-  var a1 = String(row[col('Approval 1') - 1] || '');
-  var a2 = String(row[col('Approval 2') - 1] || '');
-  var a1Email = String(row[col('Approval 1 By') - 1] || '');
-  var a2Email = String(row[col('Approval 2 By') - 1] || '');
-
-  if (a1Email === approverEmail || a2Email === approverEmail) {
-    return {success:false, message:'This Executive has already approved this hiring request.'};
-  }
-
-  var now = new Date();
-  if (!a1 || a1 === 'Pending') {
-    sh.getRange(rowIndex, col('Approval 1')).setValue('Approved');
-    sh.getRange(rowIndex, col('Approval 1 By')).setValue(approverEmail || approverName);
-    sh.getRange(rowIndex, col('Approval 1 Date')).setValue(now);
-    sh.getRange(rowIndex, col('Status')).setValue('Approval 1 approved - waiting Approval 2');
-    return {success:true, message:'Approval 1 approved. Approval 2 still pending.'};
-  }
-
-  if (!a2 || a2 === 'Pending') {
-    sh.getRange(rowIndex, col('Approval 2')).setValue('Approved');
-    sh.getRange(rowIndex, col('Approval 2 By')).setValue(approverEmail || approverName);
-    sh.getRange(rowIndex, col('Approval 2 Date')).setValue(now);
-    sh.getRange(rowIndex, col('Status')).setValue('Approved - sent to HR');
-    sh.getRange(rowIndex, col('HR Task Status')).setValue('Task sent to HR Manager');
-
-    var latest = sh.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
-    var obj = {};
-    headers.forEach(function(h, i){ obj[h] = latest[i]; });
-
-    MailApp.sendEmail('hr@onpointontime.co.za',
-      'Hire as per task request: ' + ticketNumber,
-      'Please hire as per approved hiring request.\n\nTicket Number: ' + ticketNumber + '\nPosition: ' + obj.Position + '\nDepartment: ' + obj.Department + '\nReason: ' + obj.Reason
-    );
-
-    return {success:true, message:'Approval 2 approved. HR Manager has been notified to hire as per task request with ticket number ' + ticketNumber + '.'};
-  }
-
-  return {success:true, message:'Hiring request is already fully approved.'};
-}
-
-function quickbaseWorkflowDispatch_(request) {
-  var action = request.action;
-  var sheetId = request.sheetId || '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
-  var payload = request.payload || request;
-
-  if (action === 'hiringRequests') {
-    return {success:true, data: quickbaseReadRows_(sheetId, 'Hiring Requests')};
-  }
-  if (action === 'taskUpdates') {
-    return {success:true, data: quickbaseReadRows_(sheetId, 'Task Updates')};
-  }
-  if (action === 'scoreApprovals') {
-    return {success:true, data: quickbaseReadRows_(sheetId, 'Score_approvals')};
-  }
-  if (action === 'closedTickets') {
-    return {success:true, data: quickbaseReadRows_(sheetId, 'Closed Tickets')};
-  }
-  if (action === 'addHiringRequest') {
-    return quickbaseHandleHiringRequest_(payload, sheetId);
-  }
-  if (action === 'approveHiringRequest') {
-    return quickbaseApproveHiringRequest_(payload, sheetId);
-  }
-  if (action === 'updateHiringApproval') {
-    return quickbaseUpdateHiringApproval_(request);
-  }
-  if (action === 'submitTaskUpdate') {
-    return handleSubmitTaskUpdate_(request);
-  }
-  if (action === 'updateTicketStatus') {
-    return quickbaseUpdateTicketStatus_(request);
-  }
-  if (action === 'updateMoreTimeApproval') {
-    return quickbaseUpdateMoreTimeApproval_(request);
-  }
-  if (action === 'updateAutomatedTaskReview') {
-    return quickbaseUpdateAutomatedTaskReview_(request);
-  }
-  if (action === 'addTaskUpdateRecord') {
-    try {
-      const ss = SpreadsheetApp.openById(sheetId);
-      appendQuickBaseTaskUpdate_(ss, payload);
-      return {success: true, message: 'Task update record added'};
-    } catch(e) {
-      return {success: false, message: e.message};
-    }
-  }
-  return null;
-}
-
-
-function quickbaseCurrentApproverName_(level) {
-  return Number(level) === 1 ? 'Tafadzwa Magejo' : 'Lameck Chindove';
-}
-
-function quickbaseCurrentApproverEmail_(level) {
-  return Number(level) === 1 ? 'tafadzwa.magejo@onpointontime.co.za' : 'lameck.chindove@onpointontime.co.za';
-}
-
-function quickbaseNotify_(email, subject, body) {
-  if (email && String(email).indexOf('@') > -1) MailApp.sendEmail(String(email), subject, body);
-}
-
-function quickbaseUpdateHiringApproval_(request) {
-  var payload = request.payload || request;
-  var sheetId = request.sheetId || payload.sheetId || SPREADSHEET_ID;
-  var ticketNumber = String(payload.ticketNumber || payload['Ticket Number'] || '').trim();
-  var decision = String(payload.decision || 'Approved').trim();
-  var level = Number(payload.approvalLevel || 1);
-  var approverName = String(payload.approverName || payload.approvedBy || quickbaseCurrentApproverName_(level));
-  var approverEmail = String(payload.approverEmail || quickbaseCurrentApproverEmail_(level)).trim().toLowerCase();
-  if (!ticketNumber) return {success:false, message:'Missing ticket number.'};
-
-  var sh = quickbaseGetSheet_(sheetId, 'Hiring Requests');
-  var values = sh.getDataRange().getValues();
-  if (values.length < 2) return {success:false, message:'No hiring requests found.'};
-  var headers = values[0].map(String);
-  ['Ticket Number','Status','Approval 1','Approval 1 By','Approval 1 Date','Approval 2','Approval 2 By','Approval 2 Date','HR Task Status','Requested By Email','Requested By','Position','Department','Reason'].forEach(function(h){ if (headers.indexOf(h) === -1) { sh.getRange(1, headers.length + 1).setValue(h); headers.push(h); } });
-  function col(name){ return headers.indexOf(name) + 1; }
-  var rowIndex = -1;
-  for (var r=1; r<values.length; r++) if (String(values[r][col('Ticket Number')-1]).trim() === ticketNumber) { rowIndex = r+1; break; }
-  if (rowIndex === -1) return {success:false, message:'Hiring request not found.'};
-
-  var row = sh.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
-  var a1 = String(row[col('Approval 1')-1] || 'Pending');
-  if (level === 2 && a1 !== 'Approved') return {success:false, message:'Tafadzwa Magejo must approve first.'};
-  var now = new Date();
-  var approvalCol = level === 1 ? 'Approval 1' : 'Approval 2';
-  var byCol = level === 1 ? 'Approval 1 By' : 'Approval 2 By';
-  var dateCol = level === 1 ? 'Approval 1 Date' : 'Approval 2 Date';
-  sh.getRange(rowIndex, col(approvalCol)).setValue(decision);
-  sh.getRange(rowIndex, col(byCol)).setValue(approverEmail || approverName);
-  sh.getRange(rowIndex, col(dateCol)).setValue(now);
-
-  var latest = sh.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
-  var obj = {}; headers.forEach(function(h,i){ obj[h] = latest[i]; });
-  if (decision === 'Rejected') {
-    sh.getRange(rowIndex, col('Status')).setValue('Rejected');
-    sh.getRange(rowIndex, col('HR Task Status')).setValue('Rejected');
-    quickbaseNotify_(obj['Requested By Email'], 'Hiring request rejected: ' + ticketNumber, 'Your hiring request has been rejected.\n\nTicket: ' + ticketNumber + '\nDecision by: ' + approverName);
-    return {success:true, message:'Hiring request rejected and requester notified.'};
-  }
-  if (level === 1) {
-    sh.getRange(rowIndex, col('Status')).setValue('Approval 1 approved - waiting Approval 2');
-    quickbaseNotify_('lameck.chindove@onpointontime.co.za', 'Second approval needed: ' + ticketNumber, 'Tafadzwa Magejo has approved this hiring request. Please approve or reject it in QuickBase.\n\nTicket: ' + ticketNumber + '\nPosition: ' + (obj.Position || '') + '\nDepartment: ' + (obj.Department || ''));
-    return {success:true, message:'Approval 1 saved. Sent to Mr Lameck for second approval.'};
-  }
-  sh.getRange(rowIndex, col('Status')).setValue('Approved - sent to HR');
-  sh.getRange(rowIndex, col('HR Task Status')).setValue('Task sent to HR Manager');
-  quickbaseNotify_(obj['Requested By Email'], 'Hiring request approved: ' + ticketNumber, 'Your hiring request has been approved by both executives.\n\nTicket: ' + ticketNumber + '\nPosition: ' + (obj.Position || '') + '\nDepartment: ' + (obj.Department || ''));
-  quickbaseNotify_(payload.hrManagerEmail || 'hr@onpointontime.co.za', 'Approved hiring request to action: ' + ticketNumber, 'Please action the approved hiring request.\n\nTicket: ' + ticketNumber + '\nPosition: ' + (obj.Position || '') + '\nDepartment: ' + (obj.Department || '') + '\nReason: ' + (obj.Reason || ''));
-  return {success:true, message:'Approval 2 saved. Requester and HR have been notified.'};
-}
-
-function quickbaseUpdateMoreTimeApproval_(request) {
-  var payload = request.payload || request;
-  var sheetId = request.sheetId || payload.sheetId || SPREADSHEET_ID;
-  var ticketId = String(payload.ticketId || payload.ticketNumber || payload['Ticket ID'] || payload['Ticket Number'] || payload['Task ID'] || payload.taskId || '').trim();
-  if (!ticketId) return { success: false, message: 'Missing ticket id.' };
-  var sheet = SpreadsheetApp.openById(sheetId).getSheetByName('Tasks');
-  if (!sheet) return { success: false, message: 'Sheet tab not found: Tasks' };
-  ensureQuickBaseTasksHeaders_(sheet);
-  var found = findQuickBaseTaskRow_(sheet, ticketId);
-  if (!found) return { success: false, message: 'Ticket not found in Tasks sheet: ' + ticketId };
-  var row = found.rowObject;
-  var level = Number(payload.approvalLevel || 1);
-  var decision = String(payload.decision || 'Approved');
-  var approverName = String(payload.approverName || quickbaseCurrentApproverName_(level));
-  var approverEmail = String(payload.approverEmail || quickbaseCurrentApproverEmail_(level));
-  
-  // Check if first approval is done before second approval
-  if (level === 2 && String(row['More Time Approval 1'] || '').trim() !== 'Approved') {
-    return { success:false, message:'Tafadzwa Magejo must approve first.' };
-  }
-  
-  var updates = {
-    'More Time Requested Days': payload.requestedDays || payload['More Time Requested Days'] || row['More Time Requested Days'] || '',
-    'More Time Requested Due Date': payload.approvedDueDate || payload['More Time Requested Due Date'] || row['More Time Requested Due Date'] || '',
-    'More Time Last Approved By': approverName,
-    'More Time Last Approved Date': new Date()
-  };
-  updates['More Time Approval ' + level] = decision;
-  updates['More Time Approval ' + level + ' By'] = approverEmail || approverName;
-  updates['More Time Approval ' + level + ' Date'] = new Date();
-  
-  if (decision === 'Rejected') {
-    updates.Status = 'Rejected More Time';
-    updates['More Time Approval Status'] = 'Rejected';
-  } else if (level === 1) {
-    updates.Status = 'More Time Requested - Waiting Final Approval';
-    updates['More Time Approval Status'] = 'Approval 1 approved - waiting Approval 2';
-  } else {
-    // Level 2 approval - both executives have approved
-    updates.Status = 'Open';
-    updates['More Time Approval Status'] = 'Approved';
-    if (updates['More Time Requested Due Date']) updates['Due Date'] = updates['More Time Requested Due Date'];
-  }
-  
-  updateQuickBaseTaskRow_(sheet, ticketId, updates);
-  
-  var requesterEmail = String(row['Assigned Email'] || row.assignedEmail || row['Submitted By Email'] || '').trim();
-  var assigneeName = String(row['Assigned To'] || row.assignedTo || '').trim();
-  
-  if (decision === 'Rejected') {
-    quickbaseNotify_(requesterEmail, 'More time request rejected: ' + ticketId, 'Your more-time request was rejected by ' + approverName + '.');
-  } else if (level === 1) {
-    quickbaseNotify_('lameck.chindove@onpointontime.co.za', 'Second approval needed for more-time request: ' + ticketId, 
-      'Tafadzwa Magejo has approved a more-time request. Please approve or reject it in QuickBase.\n\nTicket: ' + ticketId + '\nAssignee: ' + assigneeName + '\nRequested days: ' + updates['More Time Requested Days']);
-    return { success: true, message: 'Approval 1 saved. Sent to Mr Lameck for second approval.', ticketId: ticketId, status: updates.Status };
-  } else {
-    // Level 2 approved - also save to Score_approvals with 100% score
-    quickbaseNotify_(requesterEmail, 'More time request approved: ' + ticketId, 
-      'Your more-time request was approved by both executives.\n\nTicket: ' + ticketId + '\nNew due date: ' + (updates['Due Date'] || 'Not specified'));
-    
-    // Also save a score approval record for this task (100% since it was approved)
-    try {
-      quickbaseAppendScoreApproval_(sheetId, {
-        'Task ID': ticketId,
-        'Ticket ID': ticketId,
-        'Task Name': row['Task Name'] || row.Title || '',
-        'Assigned To': assigneeName,
-        'Assigned Email': requesterEmail,
-        'Score Percent': '100',
-        'Score Comment': 'More time request approved by both executives',
-        'Closed Status': 'Open - More Time Approved',
-        'Due Date': updates['Due Date'] || row['Due Date'] || '',
-        'Status': 'Open'
-      });
-    } catch(e) {
-      Logger.log('Score approval save for more time approval failed: ' + e);
-    }
-    
-    return { success: true, message: 'Approval 2 saved. Requester notified and due date updated.', ticketId: ticketId, status: updates.Status };
-  }
-  return { success: true, message: 'More time approval updated.', ticketId: ticketId, status: updates.Status };
-}
-
-function quickbaseScoreApprovalHeaders_() {
-  return [
-    'Timestamp','Task ID','Ticket ID','Ticket Number','Task Name','Assigned To','Assigned Email','Issued By','Issued By Email','Month',
-    'Executive 1 Name','Executive 1 Email','Executive 1 Score Percent','Executive 1 Comment','Executive 1 Date',
-    'Executive 2 Name','Executive 2 Email','Executive 2 Score Percent','Executive 2 Comment','Executive 2 Date',
-    'Average Score Percent','Final Score Percent','Score Percent','Score Comment','Closed Status','Closed On Time','Due Date','Completion Date','Closed By','Closed By Email','Status'
-  ];
-}
-
-function quickbaseNumberOrBlank_(value) {
-  var n = Number(String(value === undefined || value === null ? '' : value).replace('%','').trim());
-  return isFinite(n) ? Math.max(0, Math.min(100, n)) : '';
-}
-
-function quickbaseScoreApprovalId_(payload) {
-  return String(payload.taskId || payload.ticketId || payload.ticketNumber || payload['Task ID'] || payload['Ticket ID'] || payload['Ticket Number'] || '').trim();
-}
-
-function quickbaseScoreApprovalMonth_(payload) {
-  return String(payload.month || payload.Month || payload.sourceOccurrenceMonth || payload['Source Occurrence Month'] || '').trim();
-}
-
-function quickbaseFindScoreApprovalRow_(sheet, headers, ticketId, month) {
-  var values = sheet.getDataRange().getValues();
-  if (values.length < 2) return -1;
-  function colAny(names) {
-    for (var i = 0; i < names.length; i++) {
-      var idx = headers.indexOf(names[i]);
-      if (idx > -1) return idx;
-    }
-    return -1;
-  }
-  var idCol = colAny(['Task ID','Ticket ID','Ticket Number']);
-  var monthCol = colAny(['Month','Source Occurrence Month']);
-  for (var r = 1; r < values.length; r++) {
-    var rowId = idCol > -1 ? String(values[r][idCol] || '').trim() : '';
-    var rowMonth = monthCol > -1 ? String(values[r][monthCol] || '').trim() : '';
-    if (rowId === ticketId && (!month || !rowMonth || rowMonth === month)) return r + 1;
-  }
-  return -1;
-}
-
-function quickbaseExecutiveScoreLevel_(payload, rowObj) {
-  var email = String(payload.reviewedByEmail || payload.executiveReviewByEmail || payload.approverEmail || payload.closedByEmail || payload['Closed By Email'] || '').trim().toLowerCase();
-  var name = String(payload.reviewedBy || payload.executiveReviewBy || payload.approverName || payload.closedBy || payload['Closed By'] || '').trim().toLowerCase();
-  if (email === 'tafadzwa.magejo@onpointontime.co.za' || name.indexOf('tafadzwa magejo') > -1) return 1;
-  if (email === 'lameck.chindove@onpointontime.co.za' || name.indexOf('lameck chindove') > -1) return 2;
-  if (!rowObj || !rowObj['Executive 1 Score Percent']) return 1;
-  return 2;
-}
-
-function quickbaseWriteScoreApproval_(sheetId, payload) {
-  var sh = quickbaseGetSheet_(sheetId, 'Score_approvals');
-  var headers = quickbaseEnsureHeaders_(sh, quickbaseScoreApprovalHeaders_());
-  var ticketId = quickbaseScoreApprovalId_(payload);
-  if (!ticketId) return {success:false, message:'Missing task/ticket id for score approval.'};
-  var month = quickbaseScoreApprovalMonth_(payload);
-  var rowNumber = quickbaseFindScoreApprovalRow_(sh, headers, ticketId, month);
-  if (rowNumber === -1) {
-    var blank = {};
-    headers.forEach(function(h){ blank[h] = ''; });
-    blank.Timestamp = new Date();
-    blank['Task ID'] = ticketId;
-    blank['Ticket ID'] = ticketId;
-    blank['Ticket Number'] = payload.ticketNumber || payload['Ticket Number'] || ticketId;
-    blank['Task Name'] = payload['Task Name'] || payload.taskName || payload.Title || payload.title || '';
-    blank['Assigned To'] = payload['Assigned To'] || payload.assignedTo || '';
-    blank['Assigned Email'] = payload['Assigned Email'] || payload.assignedEmail || '';
-    blank['Issued By'] = payload['Created By'] || payload.createdBy || payload['Requested By'] || '';
-    blank['Issued By Email'] = payload['Created By Email'] || payload.createdByEmail || payload['Requested By Email'] || '';
-    blank.Month = month;
-    blank['Closed Status'] = payload.closedStatus || '';
-    blank['Closed On Time'] = String(payload.closedStatus || '').toLowerCase().indexOf('late') > -1 ? 'No' : (payload.closedStatus ? 'Yes' : '');
-    blank['Due Date'] = payload['Due Date'] || payload.dueDate || '';
-    blank['Completion Date'] = payload['Completion Date'] || payload.completionDate || '';
-    blank['Closed By'] = payload.closedBy || payload['Closed By'] || '';
-    blank['Closed By Email'] = payload.closedByEmail || payload['Closed By Email'] || '';
-    blank.Status = payload.Status || payload.status || '';
-    quickbaseAppendRow_(sheetId, 'Score_approvals', blank, headers);
-    rowNumber = sh.getLastRow();
-  }
-
-  headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
-  var current = sh.getRange(rowNumber, 1, 1, headers.length).getValues()[0];
-  var rowObj = {};
-  headers.forEach(function(h, i){ rowObj[h] = current[i]; });
-  var level = Number(payload.executiveScoreLevel || payload.scoreLevel || payload.executiveLevel || quickbaseExecutiveScoreLevel_(payload, rowObj));
-  if (level !== 2) level = 1;
-  var score = quickbaseNumberOrBlank_(payload.executiveScorePercent || payload.scorePercent || payload['Score Percent'] || payload.executiveAssigneeRating || payload['Executive Assignee Rating']);
-  var comment = payload.executiveScoreComment || payload['Executive Score Comment'] || payload.executiveRatingComments || payload['Executive Rating Comments'] || payload.scoreComment || '';
-  var reviewerName = payload.reviewedBy || payload.executiveReviewBy || payload.closedBy || payload['Closed By'] || '';
-  var reviewerEmail = payload.reviewedByEmail || payload.executiveReviewByEmail || payload.closedByEmail || payload['Closed By Email'] || '';
-  var now = new Date();
-  function setCell(name, value) {
-    var idx = headers.indexOf(name);
-    if (idx === -1) { sh.getRange(1, headers.length + 1).setValue(name); headers.push(name); idx = headers.length - 1; }
-    if (value !== undefined && value !== null) sh.getRange(rowNumber, idx + 1).setValue(value);
-    rowObj[name] = value;
-  }
-
-  setCell('Timestamp', now);
-  setCell('Task ID', rowObj['Task ID'] || ticketId);
-  setCell('Ticket ID', rowObj['Ticket ID'] || ticketId);
-  setCell('Ticket Number', rowObj['Ticket Number'] || payload.ticketNumber || payload['Ticket Number'] || ticketId);
-  setCell('Task Name', rowObj['Task Name'] || payload['Task Name'] || payload.taskName || payload.Title || payload.title || '');
-  setCell('Assigned To', rowObj['Assigned To'] || payload['Assigned To'] || payload.assignedTo || '');
-  setCell('Assigned Email', rowObj['Assigned Email'] || payload['Assigned Email'] || payload.assignedEmail || '');
-  setCell('Month', rowObj.Month || month);
-  setCell('Due Date', rowObj['Due Date'] || payload['Due Date'] || payload.dueDate || '');
-  setCell('Completion Date', rowObj['Completion Date'] || payload['Completion Date'] || payload.completionDate || '');
-  setCell('Status', payload.Status || payload.status || rowObj.Status || '');
-  if (payload.closedStatus) {
-    setCell('Closed Status', payload.closedStatus);
-    setCell('Closed On Time', String(payload.closedStatus).toLowerCase().indexOf('late') > -1 ? 'No' : 'Yes');
-  }
-  if (reviewerName) setCell('Executive ' + level + ' Name', reviewerName);
-  if (reviewerEmail) setCell('Executive ' + level + ' Email', reviewerEmail);
-  if (score !== '') setCell('Executive ' + level + ' Score Percent', score);
-  setCell('Executive ' + level + ' Comment', comment);
-  setCell('Executive ' + level + ' Date', now);
-
-  var e1 = quickbaseNumberOrBlank_(rowObj['Executive 1 Score Percent']);
-  var e2 = quickbaseNumberOrBlank_(rowObj['Executive 2 Score Percent']);
-  var finalScore = '';
-  if (e1 !== '' && e2 !== '') finalScore = Math.round((Number(e1) + Number(e2)) / 2);
-  else if (e1 !== '') finalScore = Number(e1);
-  else if (e2 !== '') finalScore = Number(e2);
-  setCell('Average Score Percent', (e1 !== '' && e2 !== '') ? finalScore : '');
-  setCell('Final Score Percent', finalScore);
-  setCell('Score Percent', finalScore);
-  setCell('Score Comment', comment || rowObj['Score Comment'] || '');
-  return {success:true, message:'Score saved to Score_approvals.', ticketId:ticketId, month:month, executiveLevel:level, scorePercent:score, averageScorePercent:(e1 !== '' && e2 !== '') ? finalScore : '', finalScorePercent:finalScore};
-}
-
-function quickbaseAppendScoreApproval_(sheetId, payload) {
-  return quickbaseWriteScoreApproval_(sheetId, payload);
-}
-
-function quickbaseUpdateAutomatedTaskReview_(request) {
-  var payload = request.payload || request;
-  var sheetId = request.sheetId || payload.sheetId || SPREADSHEET_ID;
-  var scoreResult = quickbaseWriteScoreApproval_(sheetId, payload);
-  var ticketId = quickbaseScoreApprovalId_(payload);
-  var avg = scoreResult.averageScorePercent;
-  var finalScore = scoreResult.finalScorePercent;
-  var isFullyScored = (scoreResult.executiveLevel === 2 || (avg !== ''));
-  
-  try {
-    var sh = SpreadsheetApp.openById(sheetId).getSheetByName('Automated Tasks');
-    if (sh && ticketId) {
-      var updates = {
-        'Status': !isFullyScored ? 'Completed - Awaiting Review' : 'Closed',
-        'Average Score Percent': avg,
-        'Final Score Percent': finalScore,
-        'Score Percent': finalScore,
-        'Executive Score Comment': payload.executiveScoreComment || payload['Executive Score Comment'] || ''
-      };
-      updates['Executive ' + scoreResult.executiveLevel + ' Score'] = scoreResult.scorePercent;
-      updates['Executive ' + scoreResult.executiveLevel + ' Score Percent'] = scoreResult.scorePercent;
-      updates['Executive ' + scoreResult.executiveLevel + ' Comment'] = payload.executiveScoreComment || payload['Executive Score Comment'] || '';
-      
-      // If fully scored (both executives have reviewed), mark completion date
-      if (isFullyScored) {
-        updates['Completion Date'] = new Date();
-      }
-      
-      updateQuickBaseTaskRow_(sh, ticketId, updates);
-      
-      // Also update the main Tasks sheet if this task exists there
-      try {
-        var tasksSheet = SpreadsheetApp.openById(sheetId).getSheetByName('Tasks');
-        if (tasksSheet) {
-          ensureQuickBaseTasksHeaders_(tasksSheet);
-          var taskFound = findQuickBaseTaskRow_(tasksSheet, ticketId);
-          if (taskFound) {
-            updateQuickBaseTaskRow_(tasksSheet, ticketId, {
-              'Score Percent': finalScore,
-              'Status': isFullyScored ? 'Closed' : 'Completed - Awaiting Review'
-            });
-          }
-        }
-      } catch(tasksUpdateErr) {
-        Logger.log('Tasks sheet update failed: ' + tasksUpdateErr);
-      }
-    }
-  } catch(updateErr) {
-    Logger.log('Automated task score update skipped: ' + updateErr);
-  }
-  return Object.assign({success:true, fullyScored: isFullyScored}, scoreResult);
-}
-
-function quickbaseAppendClosedTicket_(sheetId, payload) {
-  var headers = ['Ticket ID','Title','Task Description','Priority','Status','Department','Cost Center','Assigned To','Assigned Email','Due Date','Completion Date','Closed Status','Closed By','Closed By Email','Score Percent','Score Comment'];
-  var row = {
-    'Ticket ID': payload.ticketId || payload.ticketNumber || payload['Ticket ID'] || payload['Ticket Number'] || payload['Task ID'] || '',
-    'Title': payload.Title || payload.title || payload['Task Name'] || payload.taskName || '',
-    'Task Description': payload['Task Description'] || payload.Description || payload.description || '',
-    'Priority': payload.Priority || payload.priority || '',
-    'Status': payload.Status || payload.status || 'Closed',
-    'Department': payload.Department || payload.department || '',
-    'Cost Center': payload['Cost Center'] || payload.CostCenter || payload.costCenter || '',
-    'Assigned To': payload['Assigned To'] || payload.assignedTo || '',
-    'Assigned Email': payload['Assigned Email'] || payload.assignedEmail || '',
-    'Due Date': payload['Due Date'] || payload.dueDate || '',
-    'Completion Date': payload['Completion Date'] || payload.completionDate || '',
-    'Closed Status': payload.closedStatus || '',
-    'Closed By': payload.closedBy || payload['Closed By'] || '',
-    'Closed By Email': payload.closedByEmail || payload['Closed By Email'] || '',
-    'Score Percent': payload['Score Percent'] || payload.scorePercent || payload.executiveAssigneeRating || payload['Executive Assignee Rating'] || '',
-    'Score Comment': payload['Executive Rating Comments'] || payload.executiveRatingComments || payload.scoreComment || ''
-  };
-  quickbaseAppendRow_(sheetId, 'Closed Tickets', row, headers);
-}
-
-function quickbaseUpdateTicketStatus_(request) {
-  var payload = request.payload || request;
-  var sheetId = request.sheetId || payload.sheetId || SPREADSHEET_ID;
-  var tab = payload.sheetTab || request.sheetTab || 'Tasks';
-  var ticketId = String(payload.ticketId || payload.ticketID || payload.ticketNumber || payload.TicketID || payload.TicketNumber || payload['Ticket ID'] || payload['Ticket Number'] || payload['Ticket No'] || payload['Ticket No.'] || payload['Task ID'] || payload.taskId || payload.ID || '').trim();
-  if (!ticketId) return { success: false, message: 'Missing ticket id.' };
-
-  var sheet = SpreadsheetApp.openById(sheetId).getSheetByName(tab);
-  if (!sheet) return { success: false, message: 'Sheet tab not found: ' + tab };
-
-  var values = {};
-  Object.keys(payload || {}).forEach(function(key) {
-    if (['proofFileData', 'proofFiles', 'proofFileName', 'proofFileType'].indexOf(key) === -1) values[key] = payload[key];
-  });
-  if (payload.Status || payload.status) values.Status = payload.Status || payload.status;
-  if (payload['Completion Date'] || payload.completionDate) values['Completion Date'] = payload['Completion Date'] || payload.completionDate;
-
-  updateQuickBaseTaskRow_(sheet, ticketId, values);
-  if (String(values.Status || '').toLowerCase().indexOf('closed') > -1) {
-    try { quickbaseAppendScoreApproval_(sheetId, Object.assign({}, payload, values)); } catch(scoreErr) { Logger.log('Score_approvals append failed: ' + scoreErr); }
-    try { quickbaseAppendClosedTicket_(sheetId, Object.assign({}, payload, values)); } catch(closedErr) { Logger.log('Closed Tickets append failed: ' + closedErr); }
-  }
-  return { success: true, message: 'Ticket updated.', ticketId: ticketId, sheetTab: tab };
-}
-
-const QUICKBASE_TASK_PROOF_FOLDER_ID = '19GoN9yzz0ODP_F-4ffba_olb3cD0b0f4';
-
-function quickBaseJson_(obj) {
-  return ContentService
-    .createTextOutput(JSON.stringify(obj || {}))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-function handleSubmitTaskUpdate_(body) {
-  try {
-    const payload = body.payload || {};
-    const sheetId = body.sheetId || payload.sheetId || SPREADSHEET_ID;
-    const user = body.user || {};
-    if (!sheetId) throw new Error('Missing sheetId.');
-
-    const ss = SpreadsheetApp.openById(sheetId);
-    const taskSheetName = payload.taskStatusSheetTab || payload.taskSheetTab || body.taskStatusSheetTab || 'Tasks';
-    const taskSheet = ss.getSheetByName(taskSheetName);
-    if (!taskSheet) throw new Error('Tasks sheet not found.');
-    ensureQuickBaseTasksHeaders_(taskSheet);
-    payload['Task ID'] = payload['Task ID'] || payload['Ticket ID'] || payload['Ticket Number'] || payload.ticketId || payload.ticketNumber || payload.taskId || '';
-
-    const ticketId = String(payload.ticketId || payload.ticketID || payload.ticketNumber || payload.TicketID || payload.TicketNumber || payload['Ticket ID'] || payload['Ticket Number'] || payload['Ticket No'] || payload['Ticket No.'] || payload['Task ID'] || payload.taskId || payload.ID || '').trim();
-    if (!ticketId) throw new Error('Missing ticket id.');
-
-    const existingTask = findQuickBaseTaskRow_(taskSheet, ticketId);
-    if (!existingTask) throw new Error('Ticket not found in Tasks sheet: ' + ticketId);
-
-    const comment = String(payload.assigneeComment || payload['Assignee Comment'] || payload.taskResponse || payload['Task Response'] || '').trim();
-    const status = payload.Status || payload.status || (comment.toLowerCase().match(/more time|extension|extend due/) ? 'More Time Requested' : 'Completed - Awaiting Review');
-    const uploaded = uploadQuickBaseProofFiles_(payload.proofFiles || [], ticketId, user);
-    const proofLinks = uploaded.map(function(f) { return f.url; }).join('\n');
-    const proofNames = uploaded.map(function(f) { return f.name; }).join(', ');
-    const now = new Date();
-
-    updateQuickBaseTaskRow_(taskSheet, ticketId, {
-      'Task ID': ticketId,
-      'Ticket ID': ticketId,
-      'Ticket Number': ticketId,
-      'Status': status,
-      'More Time Executive Approval': String(status).toLowerCase().indexOf('more time') > -1 ? 'Pending' : '',
-      'More Time Issuer Approval': String(status).toLowerCase().indexOf('more time') > -1 ? 'Pending' : '',
-      'More Time Approval Status': String(status).toLowerCase().indexOf('more time') > -1 ? 'Pending' : '',
-      'Task Response': comment,
-      'Assignee Comment': comment,
-      'Proof Link': proofLinks || existingTask.rowObject['Proof Link'] || existingTask.rowObject['Proof Links'] || '',
-      'Proof Links': proofLinks || existingTask.rowObject['Proof Links'] || existingTask.rowObject['Proof Link'] || '',
-      'Proof File Names': proofNames || existingTask.rowObject['Proof File Names'] || '',
-      'Update Timestamp': now,
-      'Update Status': status,
-      'Update Comment': comment,
-      'Update Proof Link': proofLinks || existingTask.rowObject['Update Proof Link'] || '',
-      'Update Proof File Names': proofNames || existingTask.rowObject['Update Proof File Names'] || '',
-      'Update Submitted By': payload.submittedBy || user['Full Name'] || user.Email || '',
-      'Update Submitted By Email': payload.submittedByEmail || user.Email || '',
-      'Last Response Date': now,
-      'Completion Request Date': payload.completionRequestDate || now,
-      'Submitted By': payload.submittedBy || user['Full Name'] || user.Email || '',
-      'Submitted By Email': payload.submittedByEmail || user.Email || ''
-    });
-
-    const updateRow = appendQuickBaseTaskUpdate_(ss, {
-      'Timestamp': now,
-      'Task ID': ticketId,
-      'Ticket ID': ticketId,
-      'Ticket Number': ticketId,
-      'Title': payload.Title || payload.title || existingTask.rowObject.Title || existingTask.rowObject['Task Name'] || '',
-      'Task Description': payload['Task Description'] || payload.description || existingTask.rowObject['Task Description'] || existingTask.rowObject.Description || '',
-      'Task Status': status,
-      'Assignee': payload['Assigned To'] || payload.assignedTo || existingTask.rowObject['Assigned To'] || user['Full Name'] || '',
-      'Assignee Email': payload['Assigned Email'] || payload.assignedEmail || existingTask.rowObject['Assigned Email'] || user.Email || '',
-      'whatsapp No.': payload['whatsapp No.'] || payload['Whatsapp No.'] || payload['WhatsApp No.'] || payload.whatsappNo || existingTask.rowObject['Whatsapp No.'] || existingTask.rowObject['whatsapp No.'] || existingTask.rowObject['WhatsApp No.'] || '',
-      CostCenter: payload.CostCenter || payload['CostCenter'] || payload['Cost Center'] || payload.costCenter || existingTask.rowObject.CostCenter || existingTask.rowObject['CostCenter'] || existingTask.rowObject['Cost Center'] || '',
-      'Cost Center': payload['Cost Center'] || payload.CostCenter || payload['CostCenter'] || payload.costCenter || existingTask.rowObject['Cost Center'] || existingTask.rowObject.CostCenter || '',
-      'Submitted By': payload.submittedBy || user['Full Name'] || user.Email || '',
-      'Submitted By Email': payload.submittedByEmail || user.Email || '',
-      'Task Response': comment,
-      'Request Type': String(status).toLowerCase().indexOf('more time') > -1 ? 'More Time Request' : 'Completion Update',
-      'Proof Link': proofLinks,
-      'Proof File Names': proofNames,
-      'Originator': getFirstValue_(existingTask.rowObject, ['Created By','Requested By','Issuer','Issued By','Requester']) || getFirstValue_(payload, ['Created By','Requested By','Issuer','Issued By','Requester','createdBy','requestedBy']),
-      'Originator Email': getFirstValue_(existingTask.rowObject, ['Created By Email','Requested By Email','Issuer Email','Issued By Email','Requester Email']) || getFirstValue_(payload, ['Created By Email','Requested By Email','Issuer Email','Issued By Email','Requester Email','createdByEmail','requestedByEmail'])
-    });
-
-    const originatorEmail = updateRow['Originator Email'];
-    if (originatorEmail) {
-      const subject = (String(status).toLowerCase().indexOf('more time') > -1 ? 'More time requested: ' : 'Task update submitted: ') + ticketId;
-      const bodyText =
-        'A task update was submitted in QuickBase.\n\n' +
-        'Ticket: ' + ticketId + '\n' +
-        'Title: ' + (updateRow.Title || '') + '\n' +
-        'Assignee: ' + (updateRow.Assignee || '') + '\n' +
-        'Status: ' + status + '\n' +
-        'Comment / Feedback: ' + (comment || 'No comment provided.') + '\n' +
-        'Proof links:\n' + (proofLinks || 'No proof uploaded.') + '\n\n' +
-        'This update is also saved in the Task Updates tab.';
-      MailApp.sendEmail(String(originatorEmail), subject, bodyText);
-    }
-
-    return {
-      success: true,
-      message: 'Task update saved, proof uploaded, and originator notified.',
-      ticketId: ticketId,
-      status: status,
-      proofLinks: proofLinks,
-      uploadedFiles: uploaded,
-      updateTab: 'Task Updates'
-    };
-  } catch (err) {
-    return { success: false, message: err.message || String(err) };
-  }
-}
-
-function appendQuickBaseTaskUpdate_(ss, rowObj) {
-  const tabName = 'Task Updates';
-  const headers = [
-    'Timestamp', 'Task ID', 'Ticket ID', 'Ticket Number', 'Title', 'Task Description', 'Task Status',
-    'Assignee', 'Assignee Email', 'whatsapp No.', 'CostCenter', 'Cost Center', 'Submitted By', 'Submitted By Email',
-    'Task Response', 'Request Type', 'Proof Link', 'Proof File Names',
-    'Originator', 'Originator Email'
-  ];
-  let sh = ss.getSheetByName(tabName);
-  if (!sh) sh = ss.insertSheet(tabName);
-  const finalHeaders = quickbaseEnsureHeaders_(sh, headers);
-  const row = finalHeaders.map(function(h) { return rowObj[h] !== undefined ? rowObj[h] : ''; });
-  sh.appendRow(row);
-  return rowObj;
-}
-
-function findQuickBaseTaskRow_(sheet, ticketId) {
-  const values = sheet.getDataRange().getValues();
-  if (!values.length) return null;
-  const headers = values[0].map(String);
-  const idColumns = ['Ticket ID', 'Ticket Number', 'Ticket No', 'Ticket No.', 'TicketNumber', 'TicketID', 'ticketId', 'ticketID', 'ticketNumber', 'Task ID', 'TaskID', 'taskId', 'ID']
-    .map(function(name) { return headers.indexOf(name); })
-    .filter(function(index) { return index > -1; });
-  for (let r = 1; r < values.length; r++) {
-    for (let i = 0; i < idColumns.length; i++) {
-      if (String(values[r][idColumns[i]]).trim() === ticketId) {
-        const obj = {};
-        headers.forEach(function(h, c) { obj[h] = values[r][c]; });
-        return { rowNumber: r + 1, rowObject: obj };
-      }
-    }
-  }
-  return null;
-}
-
-function getFirstValue_(obj, names) {
-  const wanted = (names || []).map(function(n) { return String(n || '').toLowerCase().replace(/[^a-z0-9]/g, ''); });
-  const keys = Object.keys(obj || {});
-  for (let i = 0; i < keys.length; i++) {
-    const key = String(keys[i] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (wanted.indexOf(key) > -1 && obj[keys[i]] !== undefined && obj[keys[i]] !== null && String(obj[keys[i]]).trim() !== '') return obj[keys[i]];
-  }
-  return '';
-}
-
-function uploadQuickBaseProofFiles_(files, ticketId, user) {
-  if (!files || !files.length) return [];
-  const folder = DriveApp.getFolderById(QUICKBASE_TASK_PROOF_FOLDER_ID);
-  return files.map(function(file, index) {
-    const dataUrl = String(file.dataUrl || file.proofFileData || '');
-    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!match) throw new Error('Invalid file data for ' + (file.fileName || file.proofFileName || ('proof_' + (index + 1))));
-    const mimeType = file.mimeType || file.proofFileType || match[1] || 'application/octet-stream';
-    const bytes = Utilities.base64Decode(match[2]);
-    const safeName = String(file.fileName || file.proofFileName || ('proof_' + (index + 1))).replace(/[\\/:*?"<>|]/g, '_');
-    const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
-    const finalName = ticketId + '_' + stamp + '_' + safeName;
-    const blob = Utilities.newBlob(bytes, mimeType, finalName);
-    const driveFile = folder.createFile(blob);
-    driveFile.setDescription('QuickBase proof upload for ticket ' + ticketId + ' by ' + (user.Email || user['Full Name'] || 'unknown user'));
-    return { name: finalName, url: driveFile.getUrl(), id: driveFile.getId(), mimeType: mimeType };
-  });
-}
-
-function updateQuickBaseTaskRow_(sheet, ticketId, values) {
-  ensureQuickBaseTasksHeaders_(sheet);
-  const range = sheet.getDataRange();
-  const all = range.getValues();
-  if (!all.length) throw new Error('Tasks sheet is empty.');
-
-  const headers = all[0].map(String);
-  const headerMap = {};
-  headers.forEach(function(h, i) { headerMap[h] = i + 1; });
-
-  Object.keys(values).forEach(function(key) {
-    if (!headerMap[key]) {
-      sheet.getRange(1, headers.length + 1).setValue(key);
-      headers.push(key);
-      headerMap[key] = headers.length;
-    }
-  });
-
-  const idColumns = ['Ticket ID', 'Ticket Number', 'Ticket No', 'Ticket No.', 'TicketNumber', 'TicketID', 'ticketId', 'ticketID', 'ticketNumber', 'Task ID', 'TaskID', 'taskId', 'ID']
-    .map(function(name) { return headerMap[name]; })
-    .filter(Boolean);
-
-  let rowNumber = -1;
-  for (let r = 1; r < all.length; r++) {
-    for (let i = 0; i < idColumns.length; i++) {
-      if (String(all[r][idColumns[i] - 1]).trim() === ticketId) {
-        rowNumber = r + 1;
-        break;
-      }
-    }
-    if (rowNumber !== -1) break;
-  }
-
-  if (rowNumber === -1) throw new Error('Ticket not found in Tasks sheet: ' + ticketId);
-
-  Object.keys(values).forEach(function(key) {
-    const value = values[key];
-    if (value !== undefined && value !== null && value !== '') sheet.getRange(rowNumber, headerMap[key]).setValue(value);
-  });
-}
-
-function uniqueEmails_(items) {
-  const seen = {};
-  return (items || [])
-    .join(',')
-    .split(',')
-    .map(function(v) { return String(v || '').trim().toLowerCase(); })
-    .filter(function(v) {
-      if (!v || v.indexOf('@') === -1 || seen[v]) return false;
-      seen[v] = true;
-      return true;
-    });
-}
-
-function doGet(e) {
-  var request = Object.assign({}, (e && e.parameter) || {});
-  var workflow = quickbaseWorkflowDispatch_(request);
-  if (workflow) {
-    return ContentService.createTextOutput(JSON.stringify(workflow)).setMimeType(ContentService.MimeType.JSON);
-  }
-  return quickbaseOriginalDoGet_(e);
-}
-
-function doPost(e) {
-  var request = {};
-  try {
-    var body = e && e.postData && e.postData.contents ? e.postData.contents : '{}';
-    if (body && body.indexOf('data=') === 0) body = decodeURIComponent(body.replace(/^data=/, ''));
-    request = JSON.parse(body || '{}');
-  } catch(err) {
-    request = {};
-  }
-  try {
-    var workflow = quickbaseWorkflowDispatch_(request);
-    if (workflow) {
-      return ContentService.createTextOutput(JSON.stringify(workflow)).setMimeType(ContentService.MimeType.JSON);
-    }
-  } catch (workflowErr) {
-    return ContentService.createTextOutput(JSON.stringify({ success: false, message: workflowErr.message || String(workflowErr) })).setMimeType(ContentService.MimeType.JSON);
-  }
-  return quickbaseOriginalDoPost_(e);
-}';
+  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzqoh-4xucQCrK2ZOdQytsGLHvDuA9o6g9c1EahWvC2Mrt2vBredGmgzU28eGkH7aUK/exec';
   const SHEET_ID = '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
   const TASK_PROOF_DRIVE_FOLDER_ID = '19GoN9yzz0ODP_F-4ffba_olb3cD0b0f4';
 
@@ -2096,7 +926,7 @@ function doPost(e) {
   }
 
 
-  let SCRIPT_URL = localStorage.getItem('quickbase_api_url') || DEFAULT_SCRIPT_URL;
+  let SCRIPT_URL = DEFAULT_SCRIPT_URL;
   let SEND_EMAIL_NOTIFICATIONS = localStorage.getItem('quickbase_send_email_notifications') !== 'false';
   let API_POST_MODE = localStorage.getItem('quickbase_api_post_mode') || 'text';
   let API_ONLY_URL = localStorage.getItem('quickbase_api_only_url') || SCRIPT_URL;
@@ -2198,6 +1028,13 @@ function doPost(e) {
     return Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : null;
   }
 
+
+  function getSheetScorePercentFromRow(row) {
+    const raw = row && (row['Average Score Percent'] || row.averageScorePercent || row['Final Score Percent'] || row.finalScorePercent || row['Score Percent'] || row.scorePercent || row['Executive Average Score Percent'] || row.executiveAverageScorePercent || '');
+    const numeric = parseFloat(String(raw || '').replace('%', ''));
+    return Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : null;
+  }
+
   function getAutomatedTaskExecutiveReviewDetails(task, monthOverride = '') {
     const month = monthOverride || task.__autoOccurrenceMonth || getMonthKey(getTaskDueDate(task));
     const reviews = getStoredAutomatedTaskReviews();
@@ -2213,6 +1050,8 @@ function doPost(e) {
   }
 
   function getAutomatedTaskAverageScorePercent(task, monthOverride = '') {
+    const sheetScore = getSheetScorePercentFromRow(task);
+    if (sheetScore !== null) return Math.round(sheetScore);
     const details = getAutomatedTaskExecutiveReviewDetails(task, monthOverride).filter(item => item.percent !== null);
     const requiredCount = EXECUTIVE_MANAGERS.length || 1;
     if (details.length < requiredCount) return null;
@@ -2283,6 +1122,10 @@ function doPost(e) {
   function hasCurrentExecutiveReviewedAutomatedTask(task, monthOverride = '') {
     const currentKey = getExecutiveReviewUserKey();
     if (!currentKey) return false;
+    const e1Email = String(task?.['Executive 1 Email'] || '').trim().toLowerCase();
+    const e2Email = String(task?.['Executive 2 Email'] || '').trim().toLowerCase();
+    if ((currentKey === e1Email || currentKey === 'tafadzwa.magejo@onpointontime.co.za') && String(task?.['Executive 1 Score Percent'] || '').trim()) return true;
+    if ((currentKey === e2Email || currentKey === 'lameck.chindove@onpointontime.co.za') && String(task?.['Executive 2 Score Percent'] || '').trim()) return true;
     if (hasBothExecutiveAutomatedTaskReviews(task, monthOverride)) return true;
     if (isAutomatedTaskExecutiveAlertSuppressed(task, monthOverride)) return true;
     return !!getAutomatedTaskExecutiveReview(task, monthOverride, currentKey);
@@ -2311,20 +1154,47 @@ function doPost(e) {
     today.setHours(0, 0, 0, 0);
     const closedLate = !wasOnTime || (due && due < today);
     
-    // Update the task status in the Tasks sheet
+    // Save the executive score to the backend. The Apps Script writes/updates one row in
+    // Score_approvals, keeps Executive 1 and Executive 2 in separate columns, and returns
+    // the average only after both executives have scored.
     try {
-      await apiPost('updateAutomatedTaskReview', {
+      const scoreResult = await apiPost('updateAutomatedTaskReview', {
         taskId: getAutomatedTaskIdentity(task),
+        ticketId: getAutomatedTaskIdentity(task),
+        ticketNumber: getAutomatedTaskIdentity(task),
+        'Task ID': getAutomatedTaskIdentity(task),
+        'Ticket ID': getAutomatedTaskIdentity(task),
+        'Ticket Number': getAutomatedTaskIdentity(task),
         taskName: task['Task Name'] || task.taskName || task.Title || '',
+        'Task Name': task['Task Name'] || task.taskName || task.Title || '',
+        'Assigned To': getAssigneeName(task),
+        assignedTo: getAssigneeName(task),
+        'Assigned Email': getAssigneeEmail(task),
+        assignedEmail: getAssigneeEmail(task),
+        'Created By': getTaskIssuerName(task),
+        createdBy: getTaskIssuerName(task),
+        'Created By Email': getTaskIssuerEmail(task),
+        createdByEmail: getTaskIssuerEmail(task),
         month,
         executiveOnTimeReview: decision,
         executiveScorePercent: automatedTaskDecisionPercent(decision),
+        scorePercent: automatedTaskDecisionPercent(decision),
+        'Score Percent': automatedTaskDecisionPercent(decision),
         executiveAverageScorePercent: averageScorePercent === null ? '' : averageScorePercent,
         finalScorePercent: averageScorePercent === null ? '' : averageScorePercent,
         status: fullyScored ? 'Closed' : 'Completed - Awaiting Review',
         Status: fullyScored ? 'Closed' : 'Completed - Awaiting Review',
         executiveScoreComment: executiveComment,
         'Executive Score Comment': executiveComment,
+        scoreComment: executiveComment,
+        'Score Comment': executiveComment,
+        closedStatus: closedLate ? 'Closed Late' : 'Closed On Time',
+        'Closed Status': closedLate ? 'Closed Late' : 'Closed On Time',
+        'Closed On Time': closedLate ? 'No' : 'Yes',
+        'Due Date': dueDate,
+        dueDate,
+        'Completion Date': new Date().toISOString().slice(0, 10),
+        completionDate: new Date().toISOString().slice(0, 10),
         taskUpdateExecutiveComment: executiveComment,
         taskUpdateSheetTab: 'Task Updates',
         reviewedBy,
@@ -2332,34 +1202,22 @@ function doPost(e) {
         reviewedDate,
         executiveReviewBy: reviewedBy,
         executiveReviewByEmail: reviewedByEmail,
-        sheetTab: 'Automated Tasks'
-      });
-    } catch(e) {
-      console.warn('Automated task executive review saved locally only:', e.message);
-    }
-    
-    // Also save to Score_approvals sheet
-    try {
-      await apiPost('addScoreApproval', {
-        'Timestamp': new Date().toISOString(),
-        'Ticket ID': getAutomatedTaskIdentity(task),
-        'Task Name': task['Task Name'] || task.taskName || task.Title || '',
-        'Assigned To': getAssigneeName(task),
-        'Assigned Email': getAssigneeEmail(task),
-        'Issued By': currentUser?.['Full Name'] || currentUser?.Email || '',
-        'Issued By Email': currentUser?.Email || '',
-        'Score Percent': automatedTaskDecisionPercent(decision),
-        'Score Comment': executiveComment,
-        'Closed Status': closedLate ? 'Closed Late' : 'Closed On Time',
-        'Closed On Time': closedLate ? 'No' : 'Yes',
-        'Due Date': dueDate,
-        'Completion Date': new Date().toISOString().slice(0, 10),
+        closedBy: reviewedBy,
+        closedByEmail: reviewedByEmail,
         'Closed By': reviewedBy,
         'Closed By Email': reviewedByEmail,
         sheetTab: 'Score_approvals'
       });
+      if (scoreResult && scoreResult.success !== false) {
+        const returnedAverage = scoreResult.averageScorePercent || scoreResult.finalScorePercent || '';
+        if (returnedAverage !== '') {
+          reviews[key].averageScorePercent = returnedAverage;
+          saveStoredAutomatedTaskReviews(reviews);
+        }
+      }
     } catch(e) {
-      console.warn('Score_approvals save failed:', e.message);
+      console.warn('Executive score save failed:', e.message);
+      throw e;
     }
     
     if (currentSection === 'dashboard') {
@@ -3575,8 +2433,9 @@ Please log in to QuickBase to continue.`;
     const currentName = getCurrentUserName();
     const currentEmail = String(currentUser?.Email || '').trim().toLowerCase();
     const issuedIds = new Set((taskRows || []).filter(t => isSamePerson(currentName, getTaskIssuerName(t)) || (currentEmail && currentEmail === getTaskIssuerEmail(t))).map(getTicketIdentity).filter(Boolean));
-    const relevant = issuedIds.size ? rows.filter(r => issuedIds.has(String(r['Ticket ID'] || r.ticketId || r['Ticket Number'] || '').trim())) : rows;
-    const percentages = relevant.map(r => Number(String(r['Score Percent'] || r.scorePercent || r['Executive Assignee Rating'] || '').replace('%',''))).filter(n => Number.isFinite(n));
+    const assigneeRelevant = rows.filter(r => isSamePerson(currentName, r['Assigned To'] || r.assignedTo || '') || (currentEmail && currentEmail === String(r['Assigned Email'] || r.assignedEmail || '').trim().toLowerCase()));
+    const relevant = issuedIds.size ? rows.filter(r => issuedIds.has(String(r['Ticket ID'] || r.ticketId || r['Ticket Number'] || r['Task ID'] || '').trim())) : (assigneeRelevant.length ? assigneeRelevant : rows);
+    const percentages = relevant.map(r => Number(String(r['Average Score Percent'] || r.averageScorePercent || r['Final Score Percent'] || r.finalScorePercent || r['Score Percent'] || r.scorePercent || r['Executive Assignee Rating'] || '').replace('%',''))).filter(n => Number.isFinite(n));
     const average = percentages.length ? Math.round(percentages.reduce((a,b) => a+b, 0) / percentages.length) : 0;
     return `<div class="performance-score-card"><div class="panel-header"><h2>📈 Performance Scoring Average</h2></div><p class="score-note">Average % score from Google Sheet tab <strong>Score_approvals</strong> for scored tasks issued from this dashboard section.</p><div style="padding:0 24px 20px 24px"><span class="score-pill ${scoreClass(average)}">${percentages.length ? average + '%' : 'No scores'}</span><span style="font-size:12px;color:#64748b;margin-left:10px">${percentages.length} scored task${percentages.length === 1 ? '' : 's'} / ${issuedIds.size || (taskRows || []).length} issued task${(issuedIds.size || (taskRows || []).length) === 1 ? '' : 's'}</span></div></div>`;
   }
@@ -4016,6 +2875,7 @@ Please log in to QuickBase to review and update this item.`
     const possibleExecutiveReviewPairs = [
       ['Executive 1 Review', 'Executive 2 Review'],
       ['Executive 1 Score', 'Executive 2 Score'],
+      ['Executive 1 Score Percent', 'Executive 2 Score Percent'],
       ['Executive Review 1', 'Executive Review 2'],
       ['Executive Score 1', 'Executive Score 2'],
       ['Manager 1 Review', 'Manager 2 Review'],
