@@ -900,7 +900,7 @@
 
 <script>
   // ==================== CONFIGURATION ====================
-  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwVpDQuNqHTa9HAsfTYKUkTcgmGdbqR8GazUjSPvwACSWEd-pOV9BS6tv70yHaDYMnn/exec';
+  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbygdxsGP6Gm_dRVLVhdNIEsPkx7junQTdcHx3z9RkXJR8GAOrVJUr6xagrMqxuupF2Muw/exec';
   const SHEET_ID = '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
   const TASK_PROOF_DRIVE_FOLDER_ID = '19GoN9yzz0ODP_F-4ffba_olb3cD0b0f4';
 
@@ -922,7 +922,6 @@
   };
 
   function getRouteByAction(action) {
-    if (action === 'updateAutomatedTaskReview') return SHEET_ROUTES.scoreApprovals;
     return Object.values(SHEET_ROUTES).find(route => route.action === action || route.saveAction === action) || null;
   }
 
@@ -968,8 +967,8 @@
   };
 
   const EXECUTIVE_MANAGERS = [
-    { name: 'Tafadzwa Magejo', email: SYSTEM_USER_EMAILS['Tafadzwa Magejo'] },
-    { name: 'Lameck Chindove', email: SYSTEM_USER_EMAILS['Lameck Chindove'] }
+    { name: 'Lameck Chindove', email: SYSTEM_USER_EMAILS['Lameck Chindove'] },
+    { name: 'Tafadzwa Magejo', email: SYSTEM_USER_EMAILS['Tafadzwa Magejo'] }
   ];
   const HR_MANAGER = { name: 'HR Manager', email: SYSTEM_USER_EMAILS['HR Manager'] };
 
@@ -1027,67 +1026,6 @@
     if (normalized === 'Not Done') return 0;
     const numeric = parseFloat(String(value || '').replace('%', ''));
     return Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : null;
-  }
-
-
-  function scoreApprovalTicketId(row) {
-    return String(row?.['Task ID'] || row?.['Ticket ID'] || row?.['Ticket Number'] || row?.taskId || row?.ticketId || row?.ticketNumber || '').trim();
-  }
-
-  function scoreApprovalMonth(row) {
-    return String(row?.Month || row?.month || row?.sourceOccurrenceMonth || row?.['Source Occurrence Month'] || '').trim();
-  }
-
-  function scoreApprovalNumber(value) {
-    const n = Number(String(value === undefined || value === null ? '' : value).replace('%', '').trim());
-    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
-  }
-
-  function scoreApprovalValue(row) {
-    return scoreApprovalNumber(row?.['Average Score Percent']) ?? scoreApprovalNumber(row?.['Final Score Percent']) ?? scoreApprovalNumber(row?.['Score Percent']);
-  }
-
-  function scoreApprovalReviewKeyFromParts(ticketId, month = '') {
-    return `${String(ticketId || '').trim()}__${String(month || '').trim()}`;
-  }
-
-  function mergeScoreApprovalsIntoStoredReviews(scoreRows) {
-    const rows = Array.isArray(scoreRows) ? scoreRows : [];
-    window.currentScoreApprovalRows = rows;
-    const reviews = getStoredAutomatedTaskReviews();
-    rows.forEach(row => {
-      const ticketId = scoreApprovalTicketId(row);
-      if (!ticketId) return;
-      const month = scoreApprovalMonth(row);
-      const key = scoreApprovalReviewKeyFromParts(ticketId, month);
-      reviews[key] = reviews[key] || {};
-      reviews[key].byExecutive = reviews[key].byExecutive || {};
-      EXECUTIVE_MANAGERS.forEach((manager, index) => {
-        const level = index + 1;
-        const score = scoreApprovalNumber(row[`Executive ${level} Score Percent`] || row[`Executive ${level} Score`] || row[`Executive ${level} Review`]);
-        if (score === null) return;
-        const executiveKey = String((row[`Executive ${level} Email`] || manager.email || manager.name || '')).trim().toLowerCase();
-        reviews[key].byExecutive[executiveKey] = {
-          decision: String(score),
-          reviewedBy: row[`Executive ${level} Name`] || manager.name,
-          reviewedByEmail: row[`Executive ${level} Email`] || manager.email,
-          reviewedDate: row[`Executive ${level} Date`] || row.Timestamp || '',
-          executiveComment: row[`Executive ${level} Comment`] || row['Score Comment'] || ''
-        };
-      });
-    });
-    saveStoredAutomatedTaskReviews(reviews);
-  }
-
-  async function syncScoreApprovalsFromSheet() {
-    try {
-      const rows = await safeGet('scoreApprovals');
-      mergeScoreApprovalsIntoStoredReviews(rows);
-      return rows;
-    } catch(e) {
-      console.warn('Score approvals sync failed:', e.message || e);
-      return window.currentScoreApprovalRows || [];
-    }
   }
 
   function getAutomatedTaskExecutiveReviewDetails(task, monthOverride = '') {
@@ -1194,26 +1132,21 @@
     saveStoredAutomatedTaskReviews(reviews);
     const averageScorePercent = getAutomatedTaskAverageScorePercent(task, month);
     const fullyScored = averageScorePercent !== null;
-
+    
+    // Determine if this task should be marked as closed (on time or late)
+    const wasOnTime = decision === 'On Time';
+    const dueDate = getTaskDueDate(task);
+    const due = dateOnly(dueDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const closedLate = !wasOnTime || (due && due < today);
+    
+    // Update the task status in the Tasks sheet
     try {
       await apiPost('updateAutomatedTaskReview', {
         taskId: getAutomatedTaskIdentity(task),
-        ticketId: getAutomatedTaskIdentity(task),
-        ticketNumber: getAutomatedTaskIdentity(task),
-        'Task ID': getAutomatedTaskIdentity(task),
-        'Ticket ID': getAutomatedTaskIdentity(task),
         taskName: task['Task Name'] || task.taskName || task.Title || '',
-        'Task Name': task['Task Name'] || task.taskName || task.Title || '',
-        assignedTo: getAssigneeName(task),
-        'Assigned To': getAssigneeName(task),
-        assignedEmail: getAssigneeEmail(task),
-        'Assigned Email': getAssigneeEmail(task),
-        department: getDepartment(task),
-        Department: getDepartment(task),
-        dueDate: getTaskDueDate(task),
-        'Due Date': getTaskDueDate(task),
         month,
-        executiveScoreLevel: reviewedByEmail === 'tafadzwa.magejo@onpointontime.co.za' ? 1 : (reviewedByEmail === 'lameck.chindove@onpointontime.co.za' ? 2 : ''),
         executiveOnTimeReview: decision,
         executiveScorePercent: automatedTaskDecisionPercent(decision),
         executiveAverageScorePercent: averageScorePercent === null ? '' : averageScorePercent,
@@ -1234,6 +1167,31 @@
     } catch(e) {
       console.warn('Automated task executive review saved locally only:', e.message);
     }
+    
+    // Also save to Score_approvals sheet
+    try {
+      await apiPost('addScoreApproval', {
+        'Timestamp': new Date().toISOString(),
+        'Ticket ID': getAutomatedTaskIdentity(task),
+        'Task Name': task['Task Name'] || task.taskName || task.Title || '',
+        'Assigned To': getAssigneeName(task),
+        'Assigned Email': getAssigneeEmail(task),
+        'Issued By': currentUser?.['Full Name'] || currentUser?.Email || '',
+        'Issued By Email': currentUser?.Email || '',
+        'Score Percent': automatedTaskDecisionPercent(decision),
+        'Score Comment': executiveComment,
+        'Closed Status': closedLate ? 'Closed Late' : 'Closed On Time',
+        'Closed On Time': closedLate ? 'No' : 'Yes',
+        'Due Date': dueDate,
+        'Completion Date': new Date().toISOString().slice(0, 10),
+        'Closed By': reviewedBy,
+        'Closed By Email': reviewedByEmail,
+        sheetTab: 'Score_approvals'
+      });
+    } catch(e) {
+      console.warn('Score_approvals save failed:', e.message);
+    }
+    
     if (currentSection === 'dashboard') {
       try { await renderDashboard(); } catch(refreshErr) { console.warn('Dashboard refresh after score failed:', refreshErr); }
     }
@@ -1241,7 +1199,6 @@
 
   async function getDueExecutiveScoringTasks() {
     if (!isExecutive()) return [];
-    await syncScoreApprovalsFromSheet();
     const automatedTasks = await safeGet('automatedTasks');
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1620,6 +1577,8 @@ Ticket: ${payload['Ticket Number'] || payload.ticketNumber || payload['Ticket ID
 Task: ${payload.Title || payload.title || payload['Task Name'] || payload.taskName || 'Not specified'}
 Assigned to: ${getAssigneeName(payload) || payload.assignedTo || 'Not specified'}
 Comment: ${payload.assigneeComment || payload['Task Response'] || 'No comment provided.'}
+Requested Days: ${payload.requestedDays || payload['More Time Requested Days'] || 'Not specified'}
+Requested Due Date: ${payload.approvedDueDate || payload['More Time Requested Due Date'] || 'Not specified'}
 
 Please log in to QuickBase and open Approvals to approve or reject this request.`;
     const firstApprover = EXECUTIVE_MANAGERS.find(m => m.name === 'Tafadzwa Magejo') || EXECUTIVE_MANAGERS[0];
@@ -1639,6 +1598,7 @@ Your request for more time has been ${String(decision).toLowerCase()}.
 Ticket: ${payload['Ticket Number'] || payload.ticketNumber || payload['Ticket ID'] || payload.ticketId || 'Not specified'}
 Task: ${payload.Title || payload.title || payload['Task Name'] || payload.taskName || 'Not specified'}
 Decision by: ${decidedBy || 'Executive Manager'}
+${decision === 'Approved' ? `Requested Days: ${payload.requestedDays || payload['More Time Requested Days'] || 'Not specified'}\nNew Due Date: ${payload.approvedDueDate || payload['More Time Requested Due Date'] || 'Not specified'}` : ''}
 
 Please log in to QuickBase to continue.`;
     return sendGeneralEmailViaBackend(requesterEmail, subject, body);
@@ -1866,7 +1826,9 @@ Please log in to QuickBase to continue.`;
       'Cost Center': ['Cost Center', 'CostCenter', 'Cost Centre', 'CostCentre', 'costCenter', 'costCentre'],
       'Budget': ['Budget'],
       'Status': ['Status'],
-      'Task ID': ['Task ID', 'Ticket ID', 'Ticket Number', 'ID']
+      'Task ID': ['Task ID', 'Ticket ID', 'Ticket Number', 'ID'],
+      'Requested Days': ['Requested Days', 'More Time Requested Days', 'MoreTimeRequestedDays'],
+      'Requested Due Date': ['Requested Due Date', 'More Time Requested Due Date', 'MoreTimeRequestedDueDate', 'Approved Due Date']
     };
     const keys = aliases[column] || [column];
     for (const key of keys) {
@@ -2118,6 +2080,10 @@ Please log in to QuickBase to continue.`;
       const links = raw.split(/[\n,]+/).map(v => v.trim()).filter(Boolean);
       return links.map((link, index) => `<a href="${escapeHtml(link)}" target="_blank" rel="noopener">Proof ${index + 1}</a>`).join('<br>');
     }
+    if (column === 'Requested Days' || column === 'Requested Due Date') {
+      if (!value || value === '-') return '-';
+      return escapeHtml(value);
+    }
     return escapeHtml(value);
   }
 
@@ -2157,7 +2123,7 @@ Please log in to QuickBase to continue.`;
     const main = document.getElementById('mainContent');
     main.innerHTML = `
       <div class="top-bar"><div class="page-title"><h1>My Tickets</h1><p>Tickets and automated recurring tasks assigned to me</p></div><button class="refresh-btn" onclick="loadCurrentSection()">↻ Refresh</button></div>
-      <div class="panel"><div class="panel-header"><h2>📋 My Tickets</h2></div><div class="table-wrapper fit-table-wrapper"><table class="responsive-fit-table"><thead><tr>${ticketColumns.map(c => `<th>${c}</th>`).join('')}<th>Comment / Proof / Submit</th></tr></thead><tbody>${assigned.tickets.length ? assigned.tickets.map((row, index) => `<tr>${ticketColumns.map(c => ticketCellHtml(row, c)).join('')}<td data-label="Comment / Proof / Submit">${myTicketActionHtml(row, index)}</td></tr>`).join('') : `<tr><td colspan="${ticketColumns.length + 1}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>
+      <div class="panel"><div class="panel-header"><h2>📋 My Tickets</h2></div><div class="table-wrapper fit-table-wrapper"><table class="responsive-fit-table"><thead><tr>${ticketColumns.map(c => `<th>${c}</th>`).join('')}<th>Comment / Proof / Submit</th></tr></thead><tbody>${assigned.tickets.length ? assigned.tickets.map((row, index) => `<tr>${ticketColumns.map(c => ticketCellHtml(row, c)).join('')}<td data-label="Comment / Proof / Submit">${myTicketActionHtml(row, index)}</td></tr>`).join('') : `<tr><td colspan="${ticketColumns.length + 1}" style="text-align:center">No data found</td></table>`}</tbody></table></div></div>
       <div class="panel"><div class="panel-header"><h2>🔄 Automated Recurring Tasks</h2></div><div class="table-wrapper fit-table-wrapper"><table class="responsive-fit-table"><thead><tr>${autoColumns.map(c => `<th>${c}</th>`).join('')}<th>Comment / Proof / Submit</th></tr></thead><tbody>${assigned.automatedTasks.length ? assigned.automatedTasks.map((row, index) => `<tr>${autoColumns.map(c => autoCellHtml(row, c)).join('')}<td data-label="Comment / Proof / Submit">${myAutomatedTaskActionHtml(row, index)}</td></tr>`).join('') : `<tr><td colspan="${autoColumns.length + 1}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
   }
 
@@ -2231,7 +2197,7 @@ Please log in to QuickBase to continue.`;
                   <td>${escapeHtml(r.Status || r.status || '')}</td>
                   <td>${escapeHtml(r['More Time Approval 1'] || r['Approval 1'] || 'Pending')}</td>
                   <td>${escapeHtml(r['More Time Approval 2'] || r['Approval 2'] || 'Pending')}</td>
-                  <td>${escapeHtml(r['More Time Requested Days'] || '')}</td>
+                  <td>${escapeHtml(r['More Time Requested Days'] || r['Requested Days'] || '')}</td>
                   <td>${escapeHtml(r['More Time Requested Due Date'] || r['Requested Due Date'] || '')}</td>
                   <td><button class="btn-primary" onclick="submitMoreTimeDecision('${escapeHtml(getTicketIdentity(r))}', 'Approved')">Approve</button> <button class="btn-secondary" onclick="submitMoreTimeDecision('${escapeHtml(getTicketIdentity(r))}', 'Rejected')">Reject</button></td>
                 </tr>
@@ -2440,7 +2406,7 @@ Please log in to QuickBase to continue.`;
     const currentEmail = String(currentUser?.Email || '').trim().toLowerCase();
     const issuedIds = new Set((taskRows || []).filter(t => isSamePerson(currentName, getTaskIssuerName(t)) || (currentEmail && currentEmail === getTaskIssuerEmail(t))).map(getTicketIdentity).filter(Boolean));
     const relevant = issuedIds.size ? rows.filter(r => issuedIds.has(String(r['Ticket ID'] || r.ticketId || r['Ticket Number'] || '').trim())) : rows;
-    const percentages = relevant.map(r => scoreApprovalValue(r)).filter(n => Number.isFinite(n));
+    const percentages = relevant.map(r => Number(String(r['Score Percent'] || r.scorePercent || r['Executive Assignee Rating'] || '').replace('%',''))).filter(n => Number.isFinite(n));
     const average = percentages.length ? Math.round(percentages.reduce((a,b) => a+b, 0) / percentages.length) : 0;
     return `<div class="performance-score-card"><div class="panel-header"><h2>📈 Performance Scoring Average</h2></div><p class="score-note">Average % score from Google Sheet tab <strong>Score_approvals</strong> for scored tasks issued from this dashboard section.</p><div style="padding:0 24px 20px 24px"><span class="score-pill ${scoreClass(average)}">${percentages.length ? average + '%' : 'No scores'}</span><span style="font-size:12px;color:#64748b;margin-left:10px">${percentages.length} scored task${percentages.length === 1 ? '' : 's'} / ${issuedIds.size || (taskRows || []).length} issued task${(issuedIds.size || (taskRows || []).length) === 1 ? '' : 's'}</span></div></div>`;
   }
@@ -2953,7 +2919,7 @@ Please log in to QuickBase to review and update this item.`
   }
 
   function summaryTransactionsPanelHtml(title, rows, columns) {
-    return `<div id="ticketSummaryTransactionsPanel" class="panel"><div class="panel-header"><h2>${escapeHtml(title)}</h2></div><div class="table-wrapper"><table><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map(row => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
+    return `<div id="ticketSummaryTransactionsPanel" class="panel"><div class="panel-header"><h2>${escapeHtml(title)}</h2></div><div class="table-wrapper"><tr><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map(row => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
   }
 
   window.showTicketSummaryTransactions = async function(type) {
@@ -3077,6 +3043,11 @@ Please log in to QuickBase to review and update this item.`
     try {
       const proofFiles = await readProofFilesForPayload(files);
       const moreTime = isMoreTimeRequest({ comments: comment });
+      const requestedDays = moreTime ? prompt('How many extra days are you requesting?', '1') : '';
+      if (moreTime && requestedDays === null) return;
+      const requestedDueDate = moreTime ? prompt('What is the new requested due date? (YYYY-MM-DD)', getTaskDueDate(task) || '') : '';
+      if (moreTime && requestedDueDate === null) return;
+      
       const payload = Object.assign({}, task, {
         'Ticket ID': id,
         'Ticket Number': id,
@@ -3101,6 +3072,10 @@ Please log in to QuickBase to review and update this item.`
         Status: moreTime ? 'More Time Requested' : 'Completed - Awaiting Review',
         'More Time Executive Approval': moreTime ? 'Pending' : '',
         'More Time Issuer Approval': moreTime ? 'Pending' : '',
+        'Requested Days': requestedDays,
+        'More Time Requested Days': requestedDays,
+        'Requested Due Date': requestedDueDate,
+        'More Time Requested Due Date': requestedDueDate,
         sheetTab: 'Task Updates',
         taskStatusSheetTab: isAutomated ? 'Automated Tasks' : 'Tasks',
         sourceTaskType: isAutomated ? 'Automated Task' : 'Task',
@@ -3245,6 +3220,7 @@ Please log in to QuickBase to review and update this item.`
 
   function isAutomatedTaskClosed(t) {
     const status = getStatus(t);
+    if (hasBothExecutiveAutomatedTaskReviews(t, t.__autoOccurrenceMonth)) return true;
     return ['closed', 'resolved', 'done', 'completed', 'complete'].some(s => status === s || status.includes(s));
   }
 
@@ -3262,18 +3238,6 @@ Please log in to QuickBase to review and update this item.`
 
   function getPerformanceAssigneeName(item) {
     return canonicalPersonName(getAssigneeName(item) || item['Assigned To'] || item.assignedTo || '');
-  }
-
-  function getScoreApprovalForTask(item) {
-    const taskId = String(getTicketIdentity(item) || getAutomatedTaskIdentity(item) || '').trim();
-    if (!taskId) return null;
-    const month = item?.__autoOccurrenceMonth || getMonthKey(getTaskDueDate(item) || getCompletionDate(item));
-    const rows = Array.isArray(window.currentScoreApprovalRows) ? window.currentScoreApprovalRows : [];
-    const matches = rows.filter(row => scoreApprovalTicketId(row) === taskId && (!scoreApprovalMonth(row) || !month || scoreApprovalMonth(row) === month));
-    if (!matches.length) return null;
-    const latest = matches[matches.length - 1];
-    const score = scoreApprovalValue(latest);
-    return score === null ? null : { row: latest, score };
   }
 
   function scorePerformanceItem(item, type) {
@@ -3316,19 +3280,6 @@ Please log in to QuickBase to review and update this item.`
         isClosed: true,
         isOpenLate: false,
         isClosedLate: averageScorePercent < 100,
-        responseDays,
-        type
-      };
-    }
-
-    const approvalScore = getScoreApprovalForTask(item);
-    if (approvalScore && isClosed) {
-      return {
-        earned: approvalScore.score * weight,
-        possible,
-        isClosed,
-        isOpenLate,
-        isClosedLate,
         responseDays,
         type
       };
@@ -3982,7 +3933,7 @@ Please log in to QuickBase to review and update this item.`
     const names = Object.keys(people).sort();
     if (!names.length) return '<div class="panel"><div class="panel-header"><h2>📋 Tickets</h2></div><div style="padding:20px;text-align:center;color:#64748b">No ticket summary found</div></div>';
     const cols = ['Person','Total','Open On Time','Open But Late','Closed On Time','Closed But Late','Recurring Task'];
-    return `<div class="panel"><div class="panel-header"><h2>📋 Tickets</h2></div><div class="table-wrapper"><table><thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${names.map(name => {
+    return `<div class="panel"><div class="panel-header"><h2>📋 Tickets</h2></div><div class="table-wrapper"><table><thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}<tr></thead><tbody>${names.map(name => {
       const rows = people[name].rows;
       const stats = calculateTicketStats(rows);
       const recurring = rows.filter(isAutomatedTaskRow);
@@ -4057,7 +4008,7 @@ Please log in to QuickBase to review and update this item.`
         <div class="chart-card"><h3>Tickets by Department</h3><p>Current ticket count grouped by department</p><canvas id="ticketsDepartmentChart"></canvas></div>
       </div>
       ${!window.taskFilter ? ticketTablePanel : ''}
-      <div class="panel"><div class="panel-header"><h2>🔄 Automated Tasks</h2></div><div class="table-wrapper"><table><thead><tr>${automatedTaskColumns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${automatedTaskRows.length ? automatedTaskRows.map(row => `<tr>${automatedTaskColumns.map(c => `<td>${escapeHtml(getCellValue(row, c))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${automatedTaskColumns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
+      <div class="panel"><div class="panel-header"><h2>🔄 Automated Tasks</h2></div><div class="table-wrapper"></tr><thead><tr>${automatedTaskColumns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${automatedTaskRows.length ? automatedTaskRows.map(row => `<tr>${automatedTaskColumns.map(c => `<td>${escapeHtml(getCellValue(row, c))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${automatedTaskColumns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
 
     if (typeof Chart !== 'undefined') {
       const pCtx = document.getElementById('ticketsPriorityChart')?.getContext('2d');
@@ -4216,7 +4167,7 @@ Please log in to QuickBase to review and update this item.`
       if (!task) throw new Error('Task not found. Refresh Approvals and try again.');
       const approvalLevel = getApprovalStepForCurrentUser(task, 'More Time ');
       if (!approvalLevel) throw new Error('This more-time approval is not waiting for you. Tafadzwa Magejo approves first, then Mr Lameck approves second.');
-      let requestedDays = task['More Time Requested Days'] || '';
+      let requestedDays = task['More Time Requested Days'] || task['Requested Days'] || '';
       let approvedDueDate = task['More Time Requested Due Date'] || task['Requested Due Date'] || '';
       if (normalizedDecision === 'Approved') {
         requestedDays = prompt('How many extra days were requested?', requestedDays || '1');
@@ -4321,7 +4272,7 @@ Please log in to QuickBase to review and update this item.`
         <button class="btn-primary" id="saveDataEntryBtn">💾 Save ${title}</button>
         <div id="dataEntryMessage" class="message-bar"></div>
       </div></div>
-      <div class="panel"><div class="panel-header"><h2>📋 ${title}</h2></div><div class="table-wrapper"><table><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${dataArray.length ? dataArray.map(row => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
+      <div class="panel"><div class="panel-header"><h2>📋 ${title}</h2></div><div class="table-wrapper"><tr><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${dataArray.length ? dataArray.map(row => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
 
     if (columns.includes('Assigned To') && columns.includes('Assigned Email')) {
       wireAssigneeEmail(fieldId('Assigned To'), fieldId('Assigned Email'));
@@ -4371,7 +4322,7 @@ Please log in to QuickBase to review and update this item.`
   function renderSimpleTable(title, data, columns, sheetTabName = title) {
     const main = document.getElementById('mainContent');
     const dataArray = Array.isArray(data) ? data : [];
-    main.innerHTML = `<div class="top-bar"><div class="page-title"><h1>${title}</h1><p>Sheet tab: ${sheetTabName}</p></div><button class="refresh-btn" onclick="loadCurrentSection()">↻ Refresh</button></div><div class="panel"><div class="panel-header"><h2>📋 ${title}</h2></div><div class="table-wrapper"><table><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${dataArray.length ? dataArray.map(row => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
+    main.innerHTML = `<div class="top-bar"><div class="page-title"><h1>${title}</h1><p>Sheet tab: ${sheetTabName}</p></div><button class="refresh-btn" onclick="loadCurrentSection()">↻ Refresh</button></div><div class="panel"><div class="panel-header"><h2>📋 ${title}</h2></div><div class="table-wrapper"><tr><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${dataArray.length ? dataArray.map(row => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
   }
 
   async function loadCurrentSection() {
