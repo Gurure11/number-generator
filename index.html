@@ -897,7 +897,7 @@
 
 <script>
   // ==================== CONFIGURATION ====================
-  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzPSZHQZEnpzkYZNNEEyDPY7XapSe5hw6jCbwpvar3_1fgkrmtXAcA-3D80yl-SgFMT/exec';
+  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxIBo4fjEiAoh4Le4BgzhTspufOwd-dkIwbMuMZfWWOosVMN_DWWEGubTRqVEJbJ9U/exec';
   const SHEET_ID = '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
   const TASK_PROOF_DRIVE_FOLDER_ID = '19GoN9yzz0ODP_F-4ffba_olb3cD0b0f4';
 
@@ -2066,22 +2066,40 @@ Please log in to QuickBase to continue.`;
     return isScoreRowForCurrentUser(rowOrItem) || isTaskAssignedToCurrentUser(rowOrItem);
   }
 
-  function canCurrentUserApproveMoreTime(task) {
-    if (!task) return false;
-    if (isExecutive()) return true;
-    const currentName = getCurrentUserName();
-    const currentEmail = String(currentUser?.Email || '').trim().toLowerCase();
-    const issuerName = getTaskIssuerName(task);
-    const issuerEmail = getTaskIssuerEmail(task);
-    return isSamePerson(currentName, issuerName) || (currentEmail && currentEmail === issuerEmail);
+  function moreTimeApprovalState(task) {
+    const exec1Decision = String(task?.['More Time Executive 1 Approval'] || task?.moreTimeExecutive1Approval || '').trim();
+    const exec2Decision = String(task?.['More Time Executive 2 Approval'] || task?.moreTimeExecutive2Approval || '').trim();
+    const legacyExecutiveDecision = String(task?.['More Time Executive Approval'] || task?.moreTimeExecutiveApproval || '').trim();
+    const issuerDecision = String(task?.['More Time Issuer Approval'] || task?.moreTimeIssuerApproval || '').trim();
+    const approvalStatus = String(task?.['More Time Approval Status'] || task?.moreTimeApprovalStatus || '').trim();
+    const executiveDecision = exec2Decision || exec1Decision || legacyExecutiveDecision;
+    const approved = approvalStatus.toLowerCase().includes('approved by both') || (exec1Decision === 'Approved' && exec2Decision === 'Approved');
+    const rejected = approvalStatus.toLowerCase().includes('rejected') || exec1Decision === 'Rejected' || exec2Decision === 'Rejected' || legacyExecutiveDecision === 'Rejected' || issuerDecision === 'Rejected';
+    return { executiveDecision, issuerDecision, exec1Decision, exec2Decision, approvalStatus, approved, rejected };
   }
 
-  function moreTimeApprovalState(task) {
-    const executiveDecision = String(task?.['More Time Executive Approval'] || task?.moreTimeExecutiveApproval || '').trim();
-    const issuerDecision = String(task?.['More Time Issuer Approval'] || task?.moreTimeIssuerApproval || '').trim();
-    const approved = executiveDecision === 'Approved' && issuerDecision === 'Approved';
-    const rejected = executiveDecision === 'Rejected' || issuerDecision === 'Rejected';
-    return { executiveDecision, issuerDecision, approved, rejected };
+  function currentExecutiveAlreadyHandledMoreTime(task) {
+    const currentEmail = String(currentUser?.Email || '').trim().toLowerCase();
+    const currentName = getCurrentUserName();
+    const exec1Email = String(task?.['More Time Executive 1 Email'] || task?.moreTimeExecutive1Email || '').trim().toLowerCase();
+    const exec2Email = String(task?.['More Time Executive 2 Email'] || task?.moreTimeExecutive2Email || '').trim().toLowerCase();
+    const exec1Name = String(task?.['More Time Executive 1 By'] || task?.moreTimeExecutive1By || '').trim();
+    const exec2Name = String(task?.['More Time Executive 2 By'] || task?.moreTimeExecutive2By || '').trim();
+    return (currentEmail && (currentEmail === exec1Email || currentEmail === exec2Email)) || isSamePerson(currentName, exec1Name) || isSamePerson(currentName, exec2Name);
+  }
+
+  function isMoreTimeApprovalWaitingForCurrentUser(task) {
+    if (!task || !isExecutive()) return false;
+    const statusText = String(task.Status || task.status || '').toLowerCase();
+    const state = moreTimeApprovalState(task);
+    if (state.approved || state.rejected) return false;
+    if (!statusText.includes('more time requested') && !statusText.includes('waiting executive 2 more time approval')) return false;
+    if (currentExecutiveAlreadyHandledMoreTime(task)) return false;
+    return true;
+  }
+
+  function canCurrentUserApproveMoreTime(task) {
+    return isMoreTimeApprovalWaitingForCurrentUser(task);
   }
 
   function unlockOtherTasksAccess() {
@@ -2219,25 +2237,9 @@ Please log in to QuickBase to continue.`;
   }
 
   async function saveIssuedTaskToSentTickets(payload) {
-    try {
-      const sentPayload = Object.assign({}, payload, {
-        sheetTab: 'Sent_Tickets',
-        sheetName: 'Sent_Tickets',
-        tabName: 'Sent_Tickets',
-        sourceSheetTab: payload.sheetTab || 'Tasks',
-        sentDate: new Date().toISOString(),
-        CostCenter: payload.CostCenter || payload['Cost Center'] || payload.costCenter || '',
-        'Cost Center': payload['Cost Center'] || payload.CostCenter || payload.costCenter || '',
-        'Sent Date': new Date().toISOString(),
-        createdBy: payload.createdBy || payload['Created By'] || currentUser?.['Full Name'] || currentUser?.Email || '',
-        'Created By': payload['Created By'] || payload.createdBy || currentUser?.['Full Name'] || currentUser?.Email || '',
-        createdByEmail: payload.createdByEmail || payload['Created By Email'] || currentUser?.Email || '',
-        'Created By Email': payload['Created By Email'] || payload.createdByEmail || currentUser?.Email || ''
-      });
-      await apiPost('addSentTicket', sentPayload);
-    } catch(e) {
-      console.warn('Sent Tickets save skipped:', e.message);
-    }
+    // Sent Tasks are saved in the main Tasks tab when addTicket/addAutomatedTask runs.
+    // Do not append a second duplicate row. The Sent Tickets basket fetches from Tasks and filters by Created By / Created By Email.
+    return { success: true, message: 'Sent task already saved in Tasks tab.' };
   }
 
   async function renderSentTickets() {
@@ -2268,6 +2270,33 @@ Please log in to QuickBase to continue.`;
     return Array.from(map.values());
   }
 
+  function getVisibleMoreTimeApprovalRowsForCurrentUser(rows) {
+    const groups = new Map();
+    (rows || []).forEach(row => {
+      const key = getTicketIdentity(row) || `${getCellValue(row, 'Title')}__${getAssigneeName(row)}__${getTaskDueDate(row)}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    });
+
+    const visible = [];
+    groups.forEach(group => {
+      const fullyDone = group.some(row => {
+        const state = moreTimeApprovalState(row);
+        const status = String(row.Status || row.status || '').trim().toLowerCase();
+        const approvalStatus = String(state.approvalStatus || '').trim().toLowerCase();
+        return state.approved || state.rejected || approvalStatus.includes('approved by both') || status.includes('rejected more time') || (status === 'open' && approvalStatus.includes('approved'));
+      });
+      if (fullyDone) return;
+
+      // Once this executive has approved any duplicate row for this ticket, hide all duplicate rows from that executive.
+      if (group.some(currentExecutiveAlreadyHandledMoreTime)) return;
+
+      visible.push(...group.filter(isMoreTimeApprovalWaitingForCurrentUser));
+    });
+
+    return dedupeMoreTimeApprovalRows(visible);
+  }
+
   async function renderApprovals() {
     const [rows, ticketsRaw] = await Promise.all([safeGet('hiringRequests'), safeGet('tickets')]);
     const approvals = (rows || []).filter(r => {
@@ -2276,7 +2305,7 @@ Please log in to QuickBase to continue.`;
       if (['approved', 'rejected', 'sent to hr', 'hr notified', 'completed'].some(done => status.includes(done) || hrStatus.includes(done))) return false;
       return status.includes('waiting') || String(r['Approval 1'] || '').toLowerCase() === 'pending' || String(r['Approval 2'] || '').toLowerCase() === 'pending';
     });
-    const moreTimeRequests = dedupeMoreTimeApprovalRows((ticketsRaw || []).filter(t => String(t.Status || t.status || '').toLowerCase().includes('more time requested')).filter(canCurrentUserApproveMoreTime));
+    const moreTimeRequests = getVisibleMoreTimeApprovalRowsForCurrentUser(ticketsRaw || []);
 
     document.getElementById('mainContent').innerHTML = `
       <div class="top-bar">
@@ -2293,7 +2322,7 @@ Please log in to QuickBase to continue.`;
           <table>
             <thead><tr><th>Ticket</th><th>Task</th><th>Assigned To</th><th>Due Date</th><th>Comment</th><th>Status</th><th>Executive</th><th>Issuer</th><th>Action</th></tr></thead>
             <tbody>
-              ${moreTimeRequests.length ? moreTimeRequests.map(r=>`
+              ${moreTimeRequests.length ? moreTimeRequests.map((r, index)=>`
                 <tr>
                   <td>${escapeHtml(getTicketIdentity(r))}</td>
                   <td>${escapeHtml(getCellValue(r, 'Title'))}</td>
@@ -2303,7 +2332,7 @@ Please log in to QuickBase to continue.`;
                   <td>${escapeHtml(r.Status || r.status || '')}</td>
                   <td>${escapeHtml(moreTimeApprovalState(r).executiveDecision || 'Pending')}</td>
                   <td>${escapeHtml(moreTimeApprovalState(r).issuerDecision || 'Pending')}</td>
-                  <td><button class="btn-primary" onclick="submitMoreTimeDecision('${escapeHtml(getTicketIdentity(r))}', 'Approved')">Approve</button> <button class="btn-secondary" onclick="submitMoreTimeDecision('${escapeHtml(getTicketIdentity(r))}', 'Rejected')">Reject</button></td>
+                  <td><button id="moreTimeApproveBtn_${index}" class="btn-primary" onclick="submitMoreTimeDecision('${escapeHtml(getTicketIdentity(r))}', 'Approved', 'moreTimeApproveBtn_${index}')">Approve</button> <button id="moreTimeRejectBtn_${index}" class="btn-secondary" onclick="submitMoreTimeDecision('${escapeHtml(getTicketIdentity(r))}', 'Rejected', 'moreTimeRejectBtn_${index}')">Reject</button></td>
                 </tr>
               `).join('') : '<tr><td colspan="9" style="text-align:center">No more time approvals waiting</td></tr>'}
             </tbody>
@@ -2337,7 +2366,7 @@ Please log in to QuickBase to continue.`;
                   <td>${escapeHtml(approvalText(r, 'Approval 1'))}</td>
                   <td>${escapeHtml(approvalText(r, 'Approval 2'))}</td>
                   <td>${escapeHtml(r.Status)}</td>
-                  <td><button class="btn-primary" onclick="submitHiringApproval('${escapeHtml(r['Ticket Number'])}')">Approve</button> <button class="btn-secondary" onclick="submitHiringRejection('${escapeHtml(r['Ticket Number'])}')">Reject</button></td>
+                  <td><button id="hiringApproveBtn_${escapeHtml(String(r['Ticket Number']).replace(/[^a-zA-Z0-9_-]/g, '_'))}" class="btn-primary" onclick="submitHiringApproval('${escapeHtml(r['Ticket Number'])}', 'hiringApproveBtn_${escapeHtml(String(r['Ticket Number']).replace(/[^a-zA-Z0-9_-]/g, '_'))}')">Approve</button> <button id="hiringRejectBtn_${escapeHtml(String(r['Ticket Number']).replace(/[^a-zA-Z0-9_-]/g, '_'))}" class="btn-secondary" onclick="submitHiringRejection('${escapeHtml(r['Ticket Number'])}', 'hiringRejectBtn_${escapeHtml(String(r['Ticket Number']).replace(/[^a-zA-Z0-9_-]/g, '_'))}')">Reject</button></td>
                 </tr>
               `).join('') : '<tr><td colspan="8" style="text-align:center">No hiring approvals waiting</td></tr>'}
             </tbody>
@@ -2477,7 +2506,7 @@ Please log in to QuickBase to continue.`;
 
   async function getDashboardMoreTimeApprovalRows() {
     const tickets = await safeGet('tickets');
-    return (Array.isArray(tickets) ? tickets : []).filter(t => String(t.Status || t.status || '').toLowerCase().includes('more time requested')).filter(canCurrentUserApproveMoreTime);
+    return getVisibleMoreTimeApprovalRowsForCurrentUser(Array.isArray(tickets) ? tickets : []);
   }
 
   function scoringBasketDashboardWindowHtml(dueCount) {
@@ -4263,24 +4292,27 @@ Please log in to QuickBase to review and update this item.`
       await renderApprovals();
     } catch(e) {
       alert(`Approval error: ${e.message}`);
+    } finally {
+      if (buttonId) setButtonLoading(buttonId, false);
     }
   };
 
-  window.submitHiringApproval = function(ticketNumber) {
-    return window.submitHiringDecision(ticketNumber, 'Approved');
+  window.submitHiringApproval = function(ticketNumber, buttonId = '') {
+    return window.submitHiringDecision(ticketNumber, 'Approved', buttonId);
   };
 
-  window.submitHiringRejection = function(ticketNumber) {
-    return window.submitHiringDecision(ticketNumber, 'Rejected');
+  window.submitHiringRejection = function(ticketNumber, buttonId = '') {
+    return window.submitHiringDecision(ticketNumber, 'Rejected', buttonId);
   };
 
-  window.submitMoreTimeDecision = async function(ticketNumber, decision) {
+  window.submitMoreTimeDecision = async function(ticketNumber, decision, buttonId = '') {
     const normalizedDecision = decision === 'Rejected' ? 'Rejected' : 'Approved';
     if (!isExecutive()) return alert('Only Executives can approve more-time requests.');
+    if (buttonId) setButtonLoading(buttonId, true, 'Synchronising...');
     try {
       const rows = await safeGet('tickets');
-      const task = (rows || []).find(r => String(getTicketIdentity(r)) === String(ticketNumber));
-      if (!task) throw new Error('Task not found. Refresh Approvals and try again.');
+      const task = dedupeMoreTimeApprovalRows((rows || []).filter(isMoreTimeApprovalWaitingForCurrentUser)).find(r => String(getTicketIdentity(r)) === String(ticketNumber));
+      if (!task) throw new Error('This approval is no longer waiting for you. Refresh Approvals and try again.');
       const decidedBy = currentUser?.['Full Name'] || currentUser?.Email || 'Executive';
       const decidedByEmail = currentUser?.Email || '';
       let newDueDate = '';
@@ -4308,6 +4340,8 @@ Please log in to QuickBase to review and update this item.`
       await renderApprovals();
     } catch(e) {
       alert(`More time approval error: ${e.message}`);
+    } finally {
+      if (buttonId) setButtonLoading(buttonId, false);
     }
   };
 
