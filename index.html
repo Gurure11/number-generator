@@ -897,7 +897,7 @@
 
 <script>
   // ==================== CONFIGURATION ====================
-  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxkPRTG6nz0JrSeVh_UV4kbDq_B0QVqClNi7ZJpjndiGJ-XE0lZAaGAlM-6hJ88tYFR/exec';
+  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzPSZHQZEnpzkYZNNEEyDPY7XapSe5hw6jCbwpvar3_1fgkrmtXAcA-3D80yl-SgFMT/exec';
   const SHEET_ID = '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
   const TASK_PROOF_DRIVE_FOLDER_ID = '19GoN9yzz0ODP_F-4ffba_olb3cD0b0f4';
 
@@ -979,6 +979,100 @@
       });
     });
     return reviews;
+  }
+
+
+  function scoreApprovalPercent(row) {
+    const candidates = [row['Final %'], row['Average Score %'], row.finalScorePercent, row.executiveAverageScorePercent];
+    for (const value of candidates) {
+      const n = parseFloat(String(value || '').replace('%', ''));
+      if (Number.isFinite(n)) return Math.max(0, Math.min(100, n));
+    }
+    const s1 = parseFloat(String(row['Executive 1 Score %'] || '').replace('%', ''));
+    const s2 = parseFloat(String(row['Executive 2 Score %'] || '').replace('%', ''));
+    if (Number.isFinite(s1) && Number.isFinite(s2)) return Math.round((s1 + s2) / 2);
+    if (Number.isFinite(s1)) return Math.max(0, Math.min(100, s1));
+    if (Number.isFinite(s2)) return Math.max(0, Math.min(100, s2));
+    return null;
+  }
+
+  function normalizeScoreApprovalMonth(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}$/.test(raw)) return raw;
+    const parsed = dateOnly(raw);
+    return parsed ? `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}` : raw;
+  }
+
+  function getScoreApprovalAssigneeName(row) {
+    return canonicalPersonName(row['Assigned To'] || row.assignedTo || row.Assignee || row.assignee || row.Name || row.name || '');
+  }
+
+  function getScoreApprovalAssigneeKey(row) {
+    const name = getScoreApprovalAssigneeName(row);
+    const email = String(row['Assigned Email'] || row.assignedEmail || row.Email || row.email || '').trim().toLowerCase();
+    return normalizeName(name) || email;
+  }
+
+  function mergeScoreApprovalsIntoMonthlySummary(summary) {
+    const rows = window.currentScoreApprovalRows || cachedScoreApprovalRows || [];
+    const monthSet = new Set(summary.months || []);
+    const peopleByKey = {};
+    (summary.rows || []).forEach(row => {
+      const key = normalizeName(row.name) || String(row.email || '').toLowerCase();
+      if (key) peopleByKey[key] = row;
+    });
+
+    rows.forEach(scoreRow => {
+      const percent = scoreApprovalPercent(scoreRow);
+      const monthKey = normalizeScoreApprovalMonth(scoreRow.Month || scoreRow.month || scoreRow['Score Month']);
+      const personKey = getScoreApprovalAssigneeKey(scoreRow);
+      if (percent === null || !monthKey || !personKey) return;
+      let person = peopleByKey[personKey];
+      if (!person) {
+        person = {
+          name: getScoreApprovalAssigneeName(scoreRow) || scoreRow['Assigned Email'] || 'Unknown',
+          department: scoreRow.Department || scoreRow.department || 'Unknown',
+          costCenter: scoreRow['Cost Center'] || scoreRow.CostCenter || scoreRow.costCenter || 'Unknown',
+          months: {},
+          earned: 0,
+          possible: 0
+        };
+        peopleByKey[personKey] = person;
+        summary.rows.push(person);
+      }
+      person.department = person.department && person.department !== 'Unknown' ? person.department : (scoreRow.Department || scoreRow.department || 'Unknown');
+      person.costCenter = person.costCenter && person.costCenter !== 'Unknown' ? person.costCenter : (scoreRow['Cost Center'] || scoreRow.CostCenter || scoreRow.costCenter || 'Unknown');
+      if (!person.months[monthKey]) person.months[monthKey] = { tickets: 0, automated: 0, total: 0, earned: 0, possible: 0, waiting: 0, sheetScores: [] };
+      const month = person.months[monthKey];
+      month.sheetScores = month.sheetScores || [];
+      month.sheetScores.push(percent);
+      month.total = Math.max(month.total || 0, month.sheetScores.length);
+      month.automated = Math.max(month.automated || 0, month.sheetScores.length);
+      monthSet.add(monthKey);
+    });
+
+    summary.months = Array.from(monthSet).sort();
+    summary.rows.forEach(person => {
+      let earned = 0;
+      let possible = 0;
+      Object.values(person.months || {}).forEach(month => {
+        if (month.sheetScores && month.sheetScores.length) {
+          earned += month.sheetScores.reduce((sum, n) => sum + n, 0) / month.sheetScores.length;
+          possible += 100;
+        } else if (month.possible) {
+          earned += month.earned;
+          possible += month.possible;
+        }
+      });
+      if (possible) {
+        person.earned = earned;
+        person.possible = possible;
+        person.overallScore = Math.round((earned / possible) * 100);
+      }
+    });
+    summary.rows.sort((a, b) => (b.overallScore || 0) - (a.overallScore || 0) || String(a.name).localeCompare(String(b.name)));
+    return summary;
   }
 
   const SYSTEM_USER_EMAILS = {
@@ -2159,6 +2253,21 @@ Please log in to QuickBase to continue.`;
     renderSimpleTable('Tickets Sent Out', sentRows, ['Ticket ID','Title','Task Description','Priority','Status','Department','Cost Center','Assigned To','Due Date','Task Response','Proof Link'], 'Sent_Tickets');
   }
 
+  function dedupeMoreTimeApprovalRows(rows) {
+    const map = new Map();
+    (rows || []).forEach(row => {
+      const key = getTicketIdentity(row) || `${getCellValue(row, 'Title')}__${getAssigneeName(row)}__${getTaskDueDate(row)}`;
+      const existing = map.get(key);
+      if (!existing) { map.set(key, row); return; }
+      const existingApproved = String(moreTimeApprovalState(existing).executiveDecision || '').toLowerCase().includes('approved') ? 1 : 0;
+      const rowApproved = String(moreTimeApprovalState(row).executiveDecision || '').toLowerCase().includes('approved') ? 1 : 0;
+      const existingUpdated = new Date(existing['Update Timestamp'] || existing['Last Updated'] || existing['Created Date'] || 0).getTime() || 0;
+      const rowUpdated = new Date(row['Update Timestamp'] || row['Last Updated'] || row['Created Date'] || 0).getTime() || 0;
+      if (rowApproved > existingApproved || (rowApproved === existingApproved && rowUpdated >= existingUpdated)) map.set(key, row);
+    });
+    return Array.from(map.values());
+  }
+
   async function renderApprovals() {
     const [rows, ticketsRaw] = await Promise.all([safeGet('hiringRequests'), safeGet('tickets')]);
     const approvals = (rows || []).filter(r => {
@@ -2167,7 +2276,7 @@ Please log in to QuickBase to continue.`;
       if (['approved', 'rejected', 'sent to hr', 'hr notified', 'completed'].some(done => status.includes(done) || hrStatus.includes(done))) return false;
       return status.includes('waiting') || String(r['Approval 1'] || '').toLowerCase() === 'pending' || String(r['Approval 2'] || '').toLowerCase() === 'pending';
     });
-    const moreTimeRequests = (ticketsRaw || []).filter(t => String(t.Status || t.status || '').toLowerCase().includes('more time requested')).filter(canCurrentUserApproveMoreTime);
+    const moreTimeRequests = dedupeMoreTimeApprovalRows((ticketsRaw || []).filter(t => String(t.Status || t.status || '').toLowerCase().includes('more time requested')).filter(canCurrentUserApproveMoreTime));
 
     document.getElementById('mainContent').innerHTML = `
       <div class="top-bar">
@@ -2394,6 +2503,61 @@ Please log in to QuickBase to continue.`;
     </div>`;
   }
 
+  function taskTimeLapseRatio(row) {
+    const created = dateOnly(getCreatedDate(row));
+    const due = dateOnly(getTaskDueDate(row));
+    if (!created || !due || due <= created) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return (today - created) / (due - created);
+  }
+
+  function needsCriticalTimeLapseEscalation(row) {
+    if (!row || isClosedTicket(row) || isAutomatedTaskRow(row)) return false;
+    if (String(getPriority(row)).toLowerCase().includes('critical')) return false;
+    if (String(row['Critical Alert Sent'] || row.criticalAlertSent || '').toLowerCase() === 'yes') return false;
+    const ratio = taskTimeLapseRatio(row);
+    return ratio !== null && ratio >= 0.9;
+  }
+
+  async function escalateCriticalTimeLapseTasks(rows) {
+    const targets = (rows || []).filter(needsCriticalTimeLapseEscalation);
+    for (const row of targets) {
+      const ticketId = getTicketIdentity(row);
+      if (!ticketId) continue;
+      const assigneeEmail = getAssigneeEmail(row);
+      const taskTitle = getCellValue(row, 'Title');
+      try {
+        await apiPost('updateTicketStatus', Object.assign({}, row, {
+          ticketId,
+          ticketNumber: ticketId,
+          Priority: 'Critical',
+          priority: 'Critical',
+          'Critical Alert Sent': 'Yes',
+          'Critical Alert Date': new Date().toISOString(),
+          sheetTab: 'Tasks'
+        }));
+        if (assigneeEmail) {
+          await sendGeneralEmailViaBackend(
+            assigneeEmail,
+            `Critical priority alert: ${taskTitle}`,
+            `Hi ${getAssigneeName(row) || 'Assignee'},
+
+This task has reached 90% of its allowed time and has been escalated to Critical priority.
+
+Ticket: ${ticketId}
+Task: ${taskTitle}
+Due date: ${getTaskDueDate(row) || 'Not specified'}
+
+Please log in to QuickBase and action it urgently.`
+          );
+        }
+      } catch(e) {
+        console.warn('Critical 90% time-lapse escalation failed:', ticketId, e.message);
+      }
+    }
+  }
+
   async function renderDashboard() {
     const main = document.getElementById('mainContent');
     main.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading dashboard data...</p></div>';
@@ -2416,6 +2580,7 @@ Please log in to QuickBase to continue.`;
       const connectionStatusHtml = dashboardConnectionStatusHtml(dashboardResults);
 
       const ticketsArray = Array.isArray(tickets) ? tickets : [];
+      await escalateCriticalTimeLapseTasks(ticketsArray);
       const bsc = Array.isArray(bscMetrics) ? bscMetrics : [];
       const kpiArray = Array.isArray(kpis) ? kpis : [];
       const slaArray = Array.isArray(sla) ? sla : [];
@@ -3411,7 +3576,7 @@ Please log in to QuickBase to review and update this item.`
       const overallScore = person.possible ? Math.round((person.earned / person.possible) * 100) : 0;
       return Object.assign(person, { overallScore });
     }).sort((a, b) => b.overallScore - a.overallScore || a.name.localeCompare(b.name));
-    return { months: sortedMonths, rows };
+    return mergeScoreApprovalsIntoMonthlySummary({ months: sortedMonths, rows });
   }
 
   function monthlyPerformanceSummaryHtml(tickets, automatedTasks) {
@@ -3433,8 +3598,9 @@ Please log in to QuickBase to review and update this item.`
       <div class="table-wrapper"><table><thead><tr><th>Person</th>${months.map(m => `<th>${escapeHtml(monthLabelFromKey(m))}</th>`).join('')}<th>Overall</th></tr></thead><tbody>${rows.map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong></td>${months.map(monthKey => {
         const month = row.months[monthKey];
         if (!month) return '<td>-</td>';
-        if (!month.possible) return `<td><span style="font-size:12px;color:#64748b;font-weight:700">Waiting</span><div style="font-size:11px;color:#64748b;margin-top:3px">${month.total} task${month.total === 1 ? '' : 's'}</div></td>`;
-        const score = Math.round((month.earned / month.possible) * 100);
+        const sheetScores = month.sheetScores || [];
+        if (!month.possible && !sheetScores.length) return `<td><span style="font-size:12px;color:#64748b;font-weight:700">Waiting</span><div style="font-size:11px;color:#64748b;margin-top:3px">${month.total} task${month.total === 1 ? '' : 's'}</div></td>`;
+        const score = sheetScores.length ? Math.round(sheetScores.reduce((sum, n) => sum + n, 0) / sheetScores.length) : Math.round((month.earned / month.possible) * 100);
         return `<td><span class="score-pill ${scoreClass(score)}">${score}%</span><div style="font-size:11px;color:#64748b;margin-top:3px">${month.total} task${month.total === 1 ? '' : 's'}</div></td>`;
       }).join('')}<td><span class="score-pill ${scoreClass(row.overallScore)}">${row.overallScore}%</span></td></tr>`).join('')}</tbody></table></div>
     </div>`;
@@ -3456,7 +3622,7 @@ Please log in to QuickBase to review and update this item.`
         label: row.name,
         data: summary.months.map(monthKey => {
           const month = row.months[monthKey];
-          return month && month.possible ? Math.round((month.earned / month.possible) * 100) : null;
+          return month && ((month.sheetScores && month.sheetScores.length) || month.possible) ? ((month.sheetScores && month.sheetScores.length) ? Math.round(month.sheetScores.reduce((sum, n) => sum + n, 0) / month.sheetScores.length) : Math.round((month.earned / month.possible) * 100)) : null;
         }),
         tension: 0.25,
         spanGaps: true
@@ -3910,6 +4076,7 @@ Please log in to QuickBase to review and update this item.`
   async function renderTickets() {
     const [allTicketsRaw, automatedTasksRaw] = await Promise.all([safeGet('tickets'), safeGet('automatedTasks')]);
     const allTickets = Array.isArray(allTicketsRaw) ? allTicketsRaw : [];
+    await escalateCriticalTimeLapseTasks(allTickets);
     const automatedTasks = Array.isArray(automatedTasksRaw) ? automatedTasksRaw : [];
     const automatedTaskRows = expandAutomatedTaskMonthlyOccurrences(automatedTasks.filter(hasPerformanceAssignee), true);
     const allTicketRows = [...allTickets, ...automatedTaskRows];
