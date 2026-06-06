@@ -897,7 +897,7 @@
 
 <script>
   // ==================== CONFIGURATION ====================
-  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxIBo4fjEiAoh4Le4BgzhTspufOwd-dkIwbMuMZfWWOosVMN_DWWEGubTRqVEJbJ9U/exec';
+  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwJJC8It-LCluPmix-3RCcQrHsl_MPB8MNduB98o7RmRwHXVuMQYUDD-VZCtOMozcBz/exec';
   const SHEET_ID = '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
   const TASK_PROOF_DRIVE_FOLDER_ID = '19GoN9yzz0ODP_F-4ffba_olb3cD0b0f4';
 
@@ -2986,6 +2986,75 @@ Please log in to QuickBase to review and update this item.`
     };
   }
 
+
+
+  function executiveTicketRatingPercent(ratingPayload) {
+    const score = Number(ratingPayload?.executiveAssigneeRating || ratingPayload?.['Executive Assignee Rating'] || '');
+    return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score * 20))) : '';
+  }
+
+  async function postTicketScoreApproval(task, ratingPayload, finalStatus = 'Closed') {
+    if (!isExecutive() || !ratingPayload) return;
+    const ticketId = getTicketIdentity(task) || getAutomatedTaskIdentity(task);
+    if (!ticketId) return;
+    const month = getMonthKey(getTaskDueDate(task) || getCompletionDate(task) || getCreatedDate(task)) || getMonthKey(new Date());
+    const percent = executiveTicketRatingPercent(ratingPayload);
+    if (percent === '') return;
+    try {
+      await apiPost('updateScoreApproval', {
+        scoreApprovalId: `${ticketId}__${month}`,
+        'Score Approval ID': `${ticketId}__${month}`,
+        taskId: ticketId,
+        'Task ID': ticketId,
+        ticketId,
+        'Ticket ID': ticketId,
+        taskName: getCellValue(task, 'Title') || task['Task Name'] || task.taskName || '',
+        'Task Name': getCellValue(task, 'Title') || task['Task Name'] || task.taskName || '',
+        assignedTo: getAssigneeName(task),
+        assignedEmail: getAssigneeEmail(task),
+        department: getDepartment(task),
+        costCenter: getCostCenter(task),
+        month,
+        executiveOnTimeReview: `${percent}%`,
+        executiveScorePercent: percent,
+        executiveAverageScorePercent: percent,
+        finalScorePercent: percent,
+        status: finalStatus,
+        Status: finalStatus,
+        executiveScoreComment: ratingPayload.executiveRatingComments || ratingPayload['Executive Rating Comments'] || '',
+        reviewedBy: currentUser?.['Full Name'] || currentUser?.Email || '',
+        reviewedByEmail: currentUser?.Email || '',
+        reviewedDate: new Date().toISOString(),
+        sheetTab: 'Score_approvals'
+      });
+    } catch(e) {
+      console.warn('Ticket score approval posting failed:', e.message);
+    }
+  }
+
+  async function notifyTicketReadyForScoringAndClosure(task) {
+    const ticketId = getTicketIdentity(task) || getAutomatedTaskIdentity(task);
+    const title = getCellValue(task, 'Title') || task['Task Name'] || task.taskName || 'Task';
+    const originatorEmail = getTaskIssuerEmail(task);
+    const recipients = [...EXECUTIVE_MANAGERS.map(m => m.email), originatorEmail]
+      .filter(Boolean)
+      .filter((email, index, arr) => arr.indexOf(email) === index);
+    if (!ticketId || !recipients.length) return;
+    const subject = `Task ready for scoring and closure: ${ticketId}`;
+    const body = `Hi,
+
+A task has been submitted and is waiting for scoring/review and closure in QuickBase.
+
+Ticket: ${ticketId}
+Task: ${title}
+Assigned to: ${getAssigneeName(task) || 'Not specified'}
+Due date: ${getTaskDueDate(task) || 'Not specified'}
+Status: ${task.Status || task.status || 'Completed - Awaiting Review'}
+
+Please log in to QuickBase, open Tickets, score if required, and close the task if satisfied.`;
+    await Promise.all(recipients.map(email => sendGeneralEmailViaBackend(email, subject, body)));
+  }
+
   function isAutomatedTaskRow(row) {
     if (!row) return false;
     return !!(row.__autoOccurrenceMonth || row.__autoOccurrenceDueDate || row['Task ID'] || row.taskId || row['Task Name'] || row.taskName || row['Next Run'] || row.nextRun || row.recurrenceDayOfMonth || row['Day of Month']);
@@ -3122,8 +3191,8 @@ Please log in to QuickBase to review and update this item.`
 
   function ticketActionHtml(task, index) {
     if (isClosedTicket(task)) return '<span class="badge badge-open">Closed</span>';
-    if (!canCurrentUserCloseTask(task)) return '<span style="font-size:11px;color:#94a3b8">Originator/Executive only</span>';
-    return `<button class="btn-secondary" onclick="closeTicketFromTable(${index})">Close</button>`;
+    if (!canCurrentUserCloseTask(task)) return '<span style="font-size:11px;color:#94a3b8">Waiting originator/executive close</span>';
+    return `<button class="btn-primary" onclick="closeTicketFromTable(${index})">Close / Score</button>`;
   }
 
 
@@ -3235,8 +3304,9 @@ Please log in to QuickBase to review and update this item.`
         showMessage('More time request submitted to the task issuer and Executives.', 'success', 'taskAssigneeUpdateMessage');
         alert('More time request submitted to the task issuer and Executives. You will be notified when it is approved or rejected.');
       } else {
-        showMessage('Submitted. Task marked as completed and sent to the task originator.', 'success', 'taskAssigneeUpdateMessage');
-        alert('Submitted. Task is now completed and awaiting originator/executive review.');
+        await notifyTicketReadyForScoringAndClosure(payload);
+        showMessage('Submitted. Task marked as completed and sent to the originator and Executives for scoring/closure.', 'success', 'taskAssigneeUpdateMessage');
+        alert('Submitted. Task is now completed and awaiting originator/executive scoring and closure.');
       }
       await renderMyTickets();
     } catch(e) {
@@ -3254,20 +3324,29 @@ Please log in to QuickBase to review and update this item.`
     const executiveRatingPayload = promptExecutiveTicketRating(task);
     if (executiveRatingPayload === null) return;
     if (!confirm('Close this task?')) return;
-    const id = getTicketIdentity(task);
+    const isAutomated = isAutomatedTaskRow(task);
+    const id = getTicketIdentity(task) || getAutomatedTaskIdentity(task);
+    if (!id) return alert('Ticket/Task ID is missing. Please refresh and try again.');
     const payload = Object.assign({}, task, executiveRatingPayload, {
       ticketId: id,
       ticketNumber: id,
+      taskId: id,
+      'Ticket ID': id,
+      'Ticket Number': id,
+      'Task ID': id,
       status: 'Closed',
       Status: 'Closed',
       'Completion Date': new Date().toISOString().slice(0, 10),
       closedBy: currentUser?.['Full Name'] || currentUser?.Email || '',
+      'Closed By': currentUser?.['Full Name'] || currentUser?.Email || '',
       closedByEmail: currentUser?.Email || '',
-      sheetTab: 'Tasks'
+      'Closed By Email': currentUser?.Email || '',
+      sheetTab: isAutomated ? 'Automated Tasks' : 'Tasks'
     });
     try {
       await apiPost('updateTicketStatus', payload);
-      alert('Task closed.');
+      await postTicketScoreApproval(task, executiveRatingPayload, 'Closed');
+      alert('Task closed and score saved.');
       await renderTickets();
     } catch(e) {
       alert(`Could not close task: ${e.message}`);
@@ -4126,7 +4205,7 @@ Please log in to QuickBase to review and update this item.`
 
     const columns = ['Ticket ID', 'Title', 'Task Description', 'Priority', 'Status', 'Department', 'Assigned To', 'Due Date', 'Task Response', 'Proof Link'];
     const automatedTaskColumns = ['Ticket ID', 'Task ID', 'Task Name', 'Description', 'Frequency', 'Department', 'Next Run', 'Status'];
-    window.currentTicketRows = data;
+    window.currentTicketRows = [...data, ...automatedTaskRows];
     const main = document.getElementById('mainContent');
     const chartFilterText = window.ticketPriorityFilter ? `Priority: ${window.ticketPriorityFilter}` : (window.ticketDepartmentFilter ? `Department: ${window.ticketDepartmentFilter}` : '');
     const activeFilterText = window.taskFilter ? `Filtered: ${window.taskFilter.replace(/-/g, ' ')}` : (chartFilterText || 'All tickets');
@@ -4153,7 +4232,7 @@ Please log in to QuickBase to review and update this item.`
         <div class="chart-card"><h3>Tickets by Department</h3><p>Current ticket count grouped by department</p><canvas id="ticketsDepartmentChart"></canvas></div>
       </div>
       ${!window.taskFilter ? ticketTablePanel : ''}
-      <div class="panel"><div class="panel-header"><h2>🔄 Automated Tasks</h2></div><div class="table-wrapper"><table><thead><tr>${automatedTaskColumns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${automatedTaskRows.length ? automatedTaskRows.map(row => `<tr>${automatedTaskColumns.map(c => `<td>${escapeHtml(getCellValue(row, c))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${automatedTaskColumns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
+      <div class="panel"><div class="panel-header"><h2>🔄 Automated Tasks</h2></div><div class="table-wrapper"><table><thead><tr>${automatedTaskColumns.map(c => `<th>${c}</th>`).join('')}<th>Action</th></tr></thead><tbody>${automatedTaskRows.length ? automatedTaskRows.map((row, autoIndex) => `<tr>${automatedTaskColumns.map(c => `<td>${escapeHtml(getCellValue(row, c))}</td>`).join('')}<td>${ticketActionHtml(row, data.length + autoIndex)}</td></tr>`).join('') : `<tr><td colspan="${automatedTaskColumns.length + 1}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
 
     if (typeof Chart !== 'undefined') {
       const pCtx = document.getElementById('ticketsPriorityChart')?.getContext('2d');
@@ -4467,7 +4546,11 @@ Please log in to QuickBase to review and update this item.`
   function renderSimpleTable(title, data, columns, sheetTabName = title) {
     const main = document.getElementById('mainContent');
     const dataArray = Array.isArray(data) ? data : [];
-    main.innerHTML = `<div class="top-bar"><div class="page-title"><h1>${title}</h1><p>Sheet tab: ${sheetTabName}</p></div><button class="refresh-btn" onclick="loadCurrentSection()">↻ Refresh</button></div><div class="panel"><div class="panel-header"><h2>📋 ${title}</h2></div><div class="table-wrapper"><table><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${dataArray.length ? dataArray.map(row => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
+    const isTaskTable = String(sheetTabName || '').toLowerCase().includes('task') || String(title || '').toLowerCase().includes('ticket');
+    window.currentTicketRows = isTaskTable ? dataArray : (window.currentTicketRows || []);
+    const actionHeader = isTaskTable ? '<th>Action</th>' : '';
+    const actionCells = (row, index) => isTaskTable ? `<td>${ticketActionHtml(row, index)}</td>` : '';
+    main.innerHTML = `<div class="top-bar"><div class="page-title"><h1>${title}</h1><p>Sheet tab: ${sheetTabName}</p></div><button class="refresh-btn" onclick="loadCurrentSection()">↻ Refresh</button></div><div class="panel"><div class="panel-header"><h2>📋 ${title}</h2></div><div class="table-wrapper"><table><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}${actionHeader}</tr></thead><tbody>${dataArray.length ? dataArray.map((row, index) => `<tr>${columns.map(c => `<td>${renderTaskCellHtml(row, c)}</td>`).join('')}${actionCells(row, index)}</tr>`).join('') : `<tr><td colspan="${columns.length + (isTaskTable ? 1 : 0)}" style="text-align:center">No data found</td></tr>`}</tbody></table></div></div>`;
   }
 
   async function loadCurrentSection() {
