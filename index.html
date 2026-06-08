@@ -1262,7 +1262,7 @@
 
 <script>
   // ==================== CONFIGURATION ====================
-  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw8UvxyNQtpc2YylbJLmktBgHIxm376zx6cqaauacSLvfuOmLJtrrmHgM2VY1q2DgeS/exec';
+  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyJT-L7rXL1Dd0trXcCkfoN-fj62Vxl0-Ww3kyIMFfglF8YRE1sx0PNTAtqerIbZuJE/exec';
   const SHEET_ID = '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
   const TASK_PROOF_DRIVE_FOLDER_ID = '19GoN9yzz0ODP_F-4ffba_olb3cD0b0f4';
 
@@ -1656,6 +1656,8 @@
         finalScorePercent: averageScorePercent === null ? '' : averageScorePercent,
         status: fullyScored ? 'Closed' : 'Completed - Awaiting Review',
         Status: fullyScored ? 'Closed' : 'Completed - Awaiting Review',
+        closureFolder: averageScorePercent === null ? '' : (averageScorePercent >= 100 ? 'Closed On Time' : 'Closed Late'),
+        'Closure Folder': averageScorePercent === null ? '' : (averageScorePercent >= 100 ? 'Closed On Time' : 'Closed Late'),
         executiveScoreComment: executiveComment,
         'Executive Score Comment': executiveComment,
         taskUpdateExecutiveComment: executiveComment,
@@ -3454,18 +3456,35 @@ Please log in to QuickBase to review and update this item.`
   function promptExecutiveTicketRating(task) {
     if (!isExecutive()) return {};
     const assignee = getAssigneeName(task) || 'the assignee';
-    const rating = prompt(`Executive rating required before closing this ticket.\n\nRate ${assignee} from 1 to 5, where 5 is excellent.`, '5');
-    if (rating === null) return null;
-    const score = Number(String(rating).trim());
-    if (!Number.isFinite(score) || score < 1 || score > 5) {
-      alert('Please enter a valid rating from 1 to 5 before closing the ticket.');
+    const submittedDate = getCompletionDate(task) || task['Update Timestamp'] || task.updateTimestamp || '';
+    const dueDate = getTaskDueDate(task) || getDueDate(task) || '';
+    const suggested = (() => {
+      const due = dateOnly(dueDate);
+      const submitted = dateOnly(submittedDate) || new Date();
+      return due && submitted > due ? 'Late Done' : 'On Time';
+    })();
+    const decisionRaw = prompt(`Executive scoring required before closing this ticket.\n\nWas ${assignee}'s submission on time or late?\n\nType On Time or Late Done.`, suggested);
+    if (decisionRaw === null) return null;
+    const decision = normalizeAutomatedTaskReviewValue(decisionRaw);
+    if (!['On Time', 'Late Done'].includes(decision)) {
+      alert('Please enter either On Time or Late Done before closing the ticket.');
       return null;
     }
-    const comments = prompt('Optional rating comment for the task assignee:', '') || '';
-    if (!confirm(`Confirm executive rating before updating.\n\nAssignee: ${assignee}\nScore: ${score}/5\n\nIs this correct?`)) return null;
+    const comments = prompt('Optional executive scoring comment for the task assignee:', '') || '';
+    const percent = decision === 'On Time' ? 100 : 50;
+    const closureFolder = decision === 'On Time' ? 'Closed On Time' : 'Closed Late';
+    if (!confirm(`Confirm executive scoring before updating.\n\nAssignee: ${assignee}\nSubmission: ${decision}\nFolder: ${closureFolder}\nScore: ${percent}%\n\nIs this correct?`)) return null;
     return {
-      executiveAssigneeRating: String(score),
-      'Executive Assignee Rating': String(score),
+      executiveAssigneeRating: decision === 'On Time' ? '5' : '3',
+      'Executive Assignee Rating': decision === 'On Time' ? '5' : '3',
+      executiveOnTimeReview: decision,
+      'Executive On Time Review': decision,
+      executiveScorePercent: percent,
+      'Executive Score %': percent,
+      closureFolder,
+      'Closure Folder': closureFolder,
+      'Closed Folder': closureFolder,
+      'Closed Timing': closureFolder,
       executiveRatingComments: comments,
       'Executive Rating Comments': comments,
       executiveRatedBy: currentUser?.['Full Name'] || currentUser?.Email || '',
@@ -3478,8 +3497,35 @@ Please log in to QuickBase to review and update this item.`
 
 
   function executiveTicketRatingPercent(ratingPayload) {
+    const explicit = Number(ratingPayload?.executiveScorePercent || ratingPayload?.['Executive Score %'] || '');
+    if (Number.isFinite(explicit)) return Math.max(0, Math.min(100, Math.round(explicit)));
+    const decision = normalizeAutomatedTaskReviewValue(ratingPayload?.executiveOnTimeReview || ratingPayload?.['Executive On Time Review'] || '');
+    if (decision === 'On Time') return 100;
+    if (decision === 'Late Done') return 50;
     const score = Number(ratingPayload?.executiveAssigneeRating || ratingPayload?.['Executive Assignee Rating'] || '');
     return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score * 20))) : '';
+  }
+
+  function getExecutiveTicketReview(item) {
+    return normalizeAutomatedTaskReviewValue(item?.executiveOnTimeReview || item?.['Executive On Time Review'] || item?.['Executive On-Time Review'] || item?.executiveReview || item?.['Executive Review'] || '');
+  }
+
+  function getExecutiveTicketScorePercent(item) {
+    const explicit = Number(item?.executiveScorePercent || item?.['Executive Score %'] || item?.finalScorePercent || item?.['Final %'] || '');
+    if (Number.isFinite(explicit)) return Math.max(0, Math.min(100, Math.round(explicit)));
+    const review = getExecutiveTicketReview(item);
+    if (review === 'On Time') return 100;
+    if (review === 'Late Done') return 50;
+    return null;
+  }
+
+  function getExecutiveClosureFolder(item) {
+    const folder = String(item?.closureFolder || item?.['Closure Folder'] || item?.['Closed Folder'] || item?.['Closed Timing'] || '').trim().toLowerCase();
+    if (folder.includes('late')) return 'Closed Late';
+    if (folder.includes('on time') || folder.includes('ontime')) return 'Closed On Time';
+    const score = getExecutiveTicketScorePercent(item);
+    if (score !== null) return score >= 100 ? 'Closed On Time' : 'Closed Late';
+    return '';
   }
 
   async function postTicketScoreApproval(task, ratingPayload, finalStatus = 'Closed') {
@@ -3504,10 +3550,14 @@ Please log in to QuickBase to review and update this item.`
         department: getDepartment(task),
         costCenter: getCostCenter(task),
         month,
-        executiveOnTimeReview: `${percent}%`,
+        executiveOnTimeReview: ratingPayload.executiveOnTimeReview || ratingPayload['Executive On Time Review'] || `${percent}%`,
+        'Executive On Time Review': ratingPayload.executiveOnTimeReview || ratingPayload['Executive On Time Review'] || `${percent}%`,
         executiveScorePercent: percent,
+        'Executive Score %': percent,
         executiveAverageScorePercent: percent,
         finalScorePercent: percent,
+        closureFolder: ratingPayload.closureFolder || ratingPayload['Closure Folder'] || (percent >= 100 ? 'Closed On Time' : 'Closed Late'),
+        'Closure Folder': ratingPayload.closureFolder || ratingPayload['Closure Folder'] || (percent >= 100 ? 'Closed On Time' : 'Closed Late'),
         status: finalStatus,
         Status: finalStatus,
         executiveScoreComment: ratingPayload.executiveRatingComments || ratingPayload['Executive Rating Comments'] || '',
@@ -3826,6 +3876,8 @@ Please log in to QuickBase, open Tickets, score if required, and close the task 
       status: 'Closed',
       Status: 'Closed',
       'Completion Date': new Date().toISOString().slice(0, 10),
+      closureFolder: executiveRatingPayload?.closureFolder || executiveRatingPayload?.['Closure Folder'] || '',
+      'Closure Folder': executiveRatingPayload?.closureFolder || executiveRatingPayload?.['Closure Folder'] || '',
       closedBy: currentUser?.['Full Name'] || currentUser?.Email || '',
       'Closed By': currentUser?.['Full Name'] || currentUser?.Email || '',
       closedByEmail: currentUser?.Email || '',
@@ -3862,6 +3914,9 @@ Please log in to QuickBase, open Tickets, score if required, and close the task 
     };
     const isClosedLate = t => {
       if (!isClosedTicket(t)) return false;
+      const executiveFolder = getExecutiveClosureFolder(t);
+      if (executiveFolder === 'Closed Late') return true;
+      if (executiveFolder === 'Closed On Time') return false;
       const due = new Date(getStatsDueDate(t));
       if (isNaN(due)) return false;
       due.setHours(0, 0, 0, 0);
@@ -3991,6 +4046,19 @@ Please log in to QuickBase, open Tickets, score if required, and close the task 
         isClosed: true,
         isOpenLate: false,
         isClosedLate: averageScorePercent < 100,
+        responseDays,
+        type
+      };
+    }
+
+    const executiveTicketScore = !isAuto ? getExecutiveTicketScorePercent(item) : null;
+    if (!isAuto && executiveTicketScore !== null) {
+      return {
+        earned: executiveTicketScore,
+        possible: 100,
+        isClosed: true,
+        isOpenLate: false,
+        isClosedLate: executiveTicketScore < 100,
         responseDays,
         type
       };
