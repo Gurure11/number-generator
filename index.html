@@ -1262,7 +1262,7 @@
 
 <script>
   // ==================== CONFIGURATION ====================
-  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx9PYzLBN9LC7z2GH6elQRX_X81SQHqfZLJAky_mCbvwl0IZEzT6AwIn3UDlvmuXRDI/exec';
+  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyuxpuINUvfIXKwVN1LFB4ocRz3-s_eZ0jgkpp5DVwmOWOlynet26vSpH4Fj9GtR9Xd/exec';
   const SHEET_ID = '1KWYWSUmwGYcBVIuDzh7yo86eTrfnMZX35DuGnRAVNv8';
   const TASK_PROOF_DRIVE_FOLDER_ID = '19GoN9yzz0ODP_F-4ffba_olb3cD0b0f4';
 
@@ -1411,9 +1411,16 @@
       if (!person.months[monthKey]) person.months[monthKey] = { tickets: 0, automated: 0, total: 0, earned: 0, possible: 0, waiting: 0, sheetScores: [] };
       const month = person.months[monthKey];
       month.sheetScores = month.sheetScores || [];
-      month.sheetScores.push(percent);
-      month.total = Math.max(month.total || 0, month.sheetScores.length);
-      month.automated = Math.max(month.automated || 0, month.sheetScores.length);
+      month.sheetScoreIds = month.sheetScoreIds || [];
+      const scoreId = String(scoreRow['Score Approval ID'] || scoreRow.scoreApprovalId || `${scoreRow['Task ID'] || scoreRow.taskId || scoreRow['Ticket ID'] || scoreRow.ticketId || ''}__${monthKey}`);
+      if (!month.sheetScoreIds.includes(scoreId)) {
+        month.sheetScoreIds.push(scoreId);
+        month.sheetScores.push(percent);
+        month.total = (month.total || 0) + 1;
+        month.automated = (month.automated || 0) + 1;
+        month.earned = (month.earned || 0) + percent;
+        month.possible = (month.possible || 0) + 100;
+      }
       monthSet.add(monthKey);
     });
 
@@ -1422,10 +1429,7 @@
       let earned = 0;
       let possible = 0;
       Object.values(person.months || {}).forEach(month => {
-        if (month.sheetScores && month.sheetScores.length) {
-          earned += month.sheetScores.reduce((sum, n) => sum + n, 0) / month.sheetScores.length;
-          possible += 100;
-        } else if (month.possible) {
+        if (month.possible) {
           earned += month.earned;
           possible += month.possible;
         }
@@ -1557,9 +1561,12 @@
   function automatedTaskScoreBreakdownHtml(task) {
     const details = getAutomatedTaskExecutiveReviewDetails(task, task.__autoOccurrenceMonth);
     const avg = getAutomatedTaskAverageScorePercent(task, task.__autoOccurrenceMonth);
-    const detailText = details.map(item => `${escapeHtml(item.name)}: ${item.percent === null ? 'Waiting' : item.percent + '%'}`).join('<br>');
+    const ex1 = details[0] || {};
+    const ex2 = details[1] || {};
+    const ex1Text = ex1.percent === null || ex1.percent === undefined ? 'Waiting' : `${ex1.percent}%`;
+    const ex2Text = ex2.percent === null || ex2.percent === undefined ? 'Waiting' : `${ex2.percent}%`;
     const avgText = avg === null ? 'Waiting both executives' : `Average: ${avg}%`;
-    return `<span style="font-size:12px;line-height:1.5;display:inline-block">${detailText}<br><strong>${escapeHtml(avgText)}</strong></span>`;
+    return `<span style="font-size:12px;line-height:1.5;display:inline-block"><strong>Ex1 %:</strong> ${escapeHtml(ex1Text)}<br><strong>Ex2 %:</strong> ${escapeHtml(ex2Text)}<br><strong>${escapeHtml(avgText)}</strong></span>`;
   }
 
   function getAutomatedTaskExecutiveReview(task, monthOverride = '', executiveKey = '') {
@@ -1652,8 +1659,8 @@
         month,
         executiveOnTimeReview: decision,
         executiveScorePercent: automatedTaskDecisionPercent(decision),
-        executiveAverageScorePercent: selectedScorePercent,
-        finalScorePercent: selectedScorePercent,
+        executiveAverageScorePercent: '',
+        finalScorePercent: '',
         status: 'Closed',
         Status: 'Closed',
         closureFolder,
@@ -2828,7 +2835,7 @@ Please log in to QuickBase to continue.`;
       tasksByDepartment[department].push({ task, index });
     });
     const departmentTablesHtml = Object.keys(tasksByDepartment).sort().map(department => `
-      <div class="panel"><div class="panel-header"><h2>🧺 ${escapeHtml(department)} Automated Task Scoring</h2></div><div class="table-wrapper"><table><thead><tr><th>Task</th><th>Assigned To</th><th>Department</th><th>Due Date</th><th>Month</th><th>Status</th><th>Uploaded Content</th><th>Executive Scores</th><th>Average %</th><th>Executive Comment</th><th>Score</th></tr></thead><tbody>
+      <div class="panel"><div class="panel-header"><h2>🧺 ${escapeHtml(department)} Automated Task Scoring</h2></div><div class="table-wrapper"><table><thead><tr><th>Task</th><th>Assigned To</th><th>Department</th><th>Due Date</th><th>Month</th><th>Status</th><th>Uploaded Content</th><th>Ex1 % / Ex2 %</th><th>Average %</th><th>Executive Comment</th><th>Score</th></tr></thead><tbody>
         ${tasksByDepartment[department].map(item => `
           <tr>
             <td><strong>${escapeHtml(item.task['Task Name'] || item.task.taskName || item.task.Title || 'Automated task')}</strong><br><span style="font-size:12px;color:#64748b">${renderExpandableTextHtml(item.task.Description || item.task.description || '', 100)}</span></td>
@@ -2861,6 +2868,7 @@ Please log in to QuickBase to continue.`;
     if (!confirm(`Confirm score before updating.\n\nTask: ${taskName}\nAssigned to: ${assignee}\nScore: ${label} (${decision})\nComment: ${executiveComment || 'No comment'}\n\nIs this correct?`)) return;
     try {
       await saveAutomatedTaskExecutiveReview(task, decision, task.__autoOccurrenceMonth, executiveComment);
+      await refreshScoreApprovalsCache();
       suppressAutomatedTaskExecutiveAlert(task, task.__autoOccurrenceMonth);
       await renderScoringBasket();
     } catch(e) {
@@ -4267,9 +4275,8 @@ Please log in to QuickBase, open Tickets, score if required, and close the task 
       <div class="table-wrapper"><table><thead><tr><th>Person</th>${months.map(m => `<th>${escapeHtml(monthLabelFromKey(m))}</th>`).join('')}<th>Overall</th></tr></thead><tbody>${rows.map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong></td>${months.map(monthKey => {
         const month = row.months[monthKey];
         if (!month) return '<td>-</td>';
-        const sheetScores = month.sheetScores || [];
-        if (!month.possible && !sheetScores.length) return `<td><span style="font-size:12px;color:#64748b;font-weight:700">Waiting</span><div style="font-size:11px;color:#64748b;margin-top:3px">${month.total} task${month.total === 1 ? '' : 's'}</div></td>`;
-        const score = sheetScores.length ? Math.round(sheetScores.reduce((sum, n) => sum + n, 0) / sheetScores.length) : Math.round((month.earned / month.possible) * 100);
+        if (!month.possible) return `<td><span style="font-size:12px;color:#64748b;font-weight:700">Waiting</span><div style="font-size:11px;color:#64748b;margin-top:3px">${month.total} task${month.total === 1 ? '' : 's'}</div></td>`;
+        const score = Math.round((month.earned / month.possible) * 100);
         return `<td><span class="score-pill ${scoreClass(score)}">${score}%</span><div style="font-size:11px;color:#64748b;margin-top:3px">${month.total} task${month.total === 1 ? '' : 's'}</div></td>`;
       }).join('')}<td><span class="score-pill ${scoreClass(row.overallScore)}">${row.overallScore}%</span></td></tr>`).join('')}</tbody></table></div>
     </div>`;
@@ -4291,7 +4298,7 @@ Please log in to QuickBase, open Tickets, score if required, and close the task 
         label: row.name,
         data: summary.months.map(monthKey => {
           const month = row.months[monthKey];
-          return month && ((month.sheetScores && month.sheetScores.length) || month.possible) ? ((month.sheetScores && month.sheetScores.length) ? Math.round(month.sheetScores.reduce((sum, n) => sum + n, 0) / month.sheetScores.length) : Math.round((month.earned / month.possible) * 100)) : null;
+          return month && month.possible ? Math.round((month.earned / month.possible) * 100) : null;
         }),
         tension: 0.25,
         spanGaps: true
@@ -4867,7 +4874,7 @@ Please log in to QuickBase, open Tickets, score if required, and close the task 
         <div class="form-field"><label>Cost Center</label><select id="scoreFilterCost"><option value="">All cost centers</option>${costCenters.map(c => `<option value="${escapeHtml(c)}" ${c===selectedCostCenter?'selected':''}>${escapeHtml(c)}</option>`).join('')}</select></div>
         <div class="form-field"><label>Period</label><select id="scoreFilterPeriod"><option value="week" ${selectedPeriod==='week'?'selected':''}>Week</option><option value="month" ${selectedPeriod==='month'?'selected':''}>Month</option><option value="quarter" ${selectedPeriod==='quarter'?'selected':''}>Quarter</option><option value="annually" ${selectedPeriod==='annually'?'selected':''}>Annually</option></select></div>
       </div><button class="btn-primary" onclick="applyExecutiveScoringFilters()">Apply Filter</button></div></div>
-      <div class="panel"><div class="panel-header"><h2>📋 Executive Scoring Details</h2></div><div class="table-wrapper"><table><thead><tr><th>Period</th><th>Type</th><th>Task</th><th>Assigned To</th><th>Department</th><th>Cost Center</th><th>Due Date</th><th>Executive Scores</th><th>Score %</th><th>Status</th></tr></thead><tbody>${rows.length ? rows.map(row => `<tr><td>${escapeHtml(row.period)}</td><td>${escapeHtml(row.item.__scoreType)}</td><td>${escapeHtml(row.item['Task Name'] || row.item.taskName || row.item.Title || row.item.title || '')}</td><td>${escapeHtml(getAssigneeName(row.item))}</td><td>${escapeHtml(getDepartment(row.item))}</td><td>${escapeHtml(getCostCenter(row.item) || '-')}</td><td>${escapeHtml(getTaskDueDate(row.item))}</td><td>${row.item.__scoreType === 'Automated' ? automatedTaskScoreBreakdownHtml(row.item) : '-'}</td><td>${escapeHtml(row.pct)}</td><td>${escapeHtml(row.item.__scoreType === 'Automated' ? getAutomatedTaskDisplayStatus(row.item) : (row.item.Status || row.item.status || ''))}</td></tr>`).join('') : '<tr><td colspan="10" style="text-align:center">No scoring details found</td></tr>'}</tbody></table></div></div>`;
+      <div class="panel"><div class="panel-header"><h2>📋 Executive Scoring Details</h2></div><div class="table-wrapper"><table><thead><tr><th>Period</th><th>Type</th><th>Task</th><th>Assigned To</th><th>Department</th><th>Cost Center</th><th>Due Date</th><th>Ex1 % / Ex2 %</th><th>Score %</th><th>Status</th></tr></thead><tbody>${rows.length ? rows.map(row => `<tr><td>${escapeHtml(row.period)}</td><td>${escapeHtml(row.item.__scoreType)}</td><td>${escapeHtml(row.item['Task Name'] || row.item.taskName || row.item.Title || row.item.title || '')}</td><td>${escapeHtml(getAssigneeName(row.item))}</td><td>${escapeHtml(getDepartment(row.item))}</td><td>${escapeHtml(getCostCenter(row.item) || '-')}</td><td>${escapeHtml(getTaskDueDate(row.item))}</td><td>${row.item.__scoreType === 'Automated' ? automatedTaskScoreBreakdownHtml(row.item) : '-'}</td><td>${escapeHtml(row.pct)}</td><td>${escapeHtml(row.item.__scoreType === 'Automated' ? getAutomatedTaskDisplayStatus(row.item) : (row.item.Status || row.item.status || ''))}</td></tr>`).join('') : '<tr><td colspan="10" style="text-align:center">No scoring details found</td></tr>'}</tbody></table></div></div>`;
   }
 
   window.applyExecutiveScoringFilters = function() {
